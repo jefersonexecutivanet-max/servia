@@ -261,12 +261,13 @@ export default function RestaurantsModule({
     setBusy(true);
     setError("");
     try {
+      const thirtyDaysFromNow = Date.now() + THIRTY_DAYS_IN_MS;
       await updateDoc(doc(db, "restaurants", restaurant.id), {
         paymentStatus: "paid",
         status: "active",
         paidAt: serverTimestamp(),
         activatedAt: serverTimestamp(),
-        monthlyPaidUntil: Timestamp.fromMillis(THIRTY_DAYS_IN_MS),
+        monthlyPaidUntil: Timestamp.fromMillis(thirtyDaysFromNow),
       });
       setNotice(`Pagamento registrado. ${restaurant.name} está liberado por mais 30 dias.`);
     } catch (paymentError) {
