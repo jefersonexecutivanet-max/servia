@@ -134,7 +134,9 @@ service cloud.firestore {
         && request.auth.uid == restaurantId
         && resource.data.ownerEmail == request.auth.token.email
       );
-      allow list, create, delete: if isOwner();
+      allow list: if isOwner() || signedIn();
+      allow create: if isOwner();
+      allow delete: if isOwner();
       allow update: if isOwner() || (
         isRestaurantOwner(restaurantId)
         && request.resource.data.diff(resource.data).affectedKeys()
