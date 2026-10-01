@@ -162,6 +162,7 @@ export default function RestaurantsModule({
     setBusy(true);
     setError("");
     try {
+      console.log("Verificando CNPJ duplicado...");
       const duplicateCnpj = await getDocs(query(
         collection(db, "restaurants"),
         where("cnpj", "==", normalizedCnpj),
@@ -170,6 +171,7 @@ export default function RestaurantsModule({
         throw new Error("Esse CNPJ já está cadastrado.");
       }
 
+      console.log("Verificando e-mail duplicado...");
       const existingAccount = await getDocs(query(
         collection(db, "restaurants"),
         where("ownerEmail", "==", normalizedEmail),
@@ -178,14 +180,17 @@ export default function RestaurantsModule({
         throw new Error("Esse e-mail já está vinculado a um restaurante.");
       }
 
+      console.log("Criando usuário no Firebase Auth...");
       const account = await createUserWithEmailAndPassword(
         restaurantProvisioningAuth,
         normalizedEmail,
         form.password,
       );
       const accountUid = account.user.uid;
+      console.log("Usuário criado com UID:", accountUid);
 
       try {
+        console.log("Salvando documento do restaurante...");
         await setDoc(doc(db, "restaurants", accountUid), {
           name: form.name.trim(),
           cnpj: normalizedCnpj,
@@ -200,8 +205,11 @@ export default function RestaurantsModule({
           createdBy: auth.currentUser?.uid || "",
           createdAt: serverTimestamp(),
         });
+        console.log("Documento salvo com sucesso");
         await signOut(restaurantProvisioningAuth);
+        console.log("Auth de provisioning desconectada");
       } catch (saveError) {
+        console.error("Erro ao salvar documento:", saveError);
         await deleteUser(account.user).catch(() => undefined);
         await signOut(restaurantProvisioningAuth).catch(() => undefined);
         throw saveError;
@@ -216,13 +224,30 @@ export default function RestaurantsModule({
       const code = typeof createError === "object" && createError && "code" in createError
         ? String((createError as { code: string }).code)
         : "";
-      setError(
-        createError instanceof Error && !code
-          ? createError.message
-          : code === "auth/email-already-in-use"
-            ? "Esse e-mail já possui uma conta no Firebase. Use outro e-mail do responsável."
-            : "Não foi possível criar a conta. Confira os dados e tente novamente.",
-      );
+      const message = typeof createError === "object" && createError && "message" in createError
+        ? String((createError as { message: string }).message)
+        : "";
+      
+      console.error("Código do erro:", code);
+      console.error("Mensagem do erro:", message);
+      
+      if (createError instanceof Error && !code) {
+        setError(createError.message);
+      } else if (code === "auth/email-already-in-use") {
+        setError("Esse e-mail já possui uma conta no Firebase. Use outro e-mail do responsável.");
+      } else if (code === "auth/invalid-email") {
+        setError("O e-mail informado não é válido.");
+      } else if (code === "auth/weak-password") {
+        setError("A senha precisa ter pelo menos 6 caracteres.");
+      } else if (code === "auth/network-request-failed") {
+        setError("Erro de conexão. Verifique sua internet e tente novamente.");
+      } else if (code === "auth/too-many-requests") {
+        setError("Muitas tentativas de criação. Aguarde alguns minutos e tente novamente.");
+      } else if (code === "auth/operation-not-allowed") {
+        setError("A criação de contas por e-mail/senha não está habilitada no Firebase.");
+      } else {
+        setError(`Erro ao criar conta: ${code || message || "Erro desconhecido"}. Tente novamente.`);
+      }
     } finally {
       setBusy(false);
     }
