@@ -1862,7 +1862,7 @@ export default function App() {
   }, [waiterRestaurantRouteId, waiterRouteId]);
 
   useEffect(() => {
-    if (access !== "restaurant" || !user) {
+    if (!user) {
       return;
     }
 
@@ -1875,6 +1875,11 @@ export default function App() {
         setPendingPaymentAmount(paidUntil ? 100 : 600);
         setAccess("restaurant-pending");
         return;
+      }
+
+      // Se estava pending e agora é válido, mudar para restaurant
+      if (access === "restaurant-pending" && valid) {
+        setAccess("restaurant");
       }
 
       window.clearTimeout(expiryTimeout);
