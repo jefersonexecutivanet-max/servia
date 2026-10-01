@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Plus, Edit, Trash2, Search, DollarSign, TrendingUp, TrendingDown, Wallet, CreditCard } from "lucide-react";
 
 interface CashTransaction {
@@ -12,8 +12,60 @@ interface CashTransaction {
   reference?: string;
 }
 
+const mockTransactions: CashTransaction[] = [
+  {
+    id: "1",
+    type: "entrada",
+    category: "vendas",
+    description: "Venda do dia - Mesa 5",
+    amount: 198.40,
+    paymentMethod: "cartao",
+    date: new Date(),
+    reference: "Mesa 5",
+  },
+  {
+    id: "2",
+    type: "entrada",
+    category: "vendas",
+    description: "Venda do dia - Mesa 7",
+    amount: 245.80,
+    paymentMethod: "pix",
+    date: new Date(),
+    reference: "Mesa 7",
+  },
+  {
+    id: "3",
+    type: "saida",
+    category: "fornecedor",
+    description: "Compra de ingredientes",
+    amount: 1200.00,
+    paymentMethod: "transferencia",
+    date: new Date(),
+    reference: "Fornecedor ABC",
+  },
+  {
+    id: "4",
+    type: "saida",
+    category: "salário",
+    description: "Pagamento funcionários",
+    amount: 11600.00,
+    paymentMethod: "transferencia",
+    date: new Date(),
+  },
+  {
+    id: "5",
+    type: "entrada",
+    category: "vendas",
+    description: "Venda do dia - Mesa 1",
+    amount: 156.90,
+    paymentMethod: "dinheiro",
+    date: new Date(),
+    reference: "Mesa 1",
+  },
+];
+
 export default function CashModule() {
-  const [transactions, setTransactions] = useState<CashTransaction[]>([]);
+  const [transactions, setTransactions] = useState<CashTransaction[]>(mockTransactions);
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedType, setSelectedType] = useState("todos");
   const [showModal, setShowModal] = useState(false);
@@ -26,61 +78,6 @@ export default function CashModule() {
     paymentMethod: "dinheiro" as "dinheiro" | "cartao" | "pix" | "transferencia",
     reference: "",
   });
-
-  useEffect(() => {
-    const mockTransactions: CashTransaction[] = [
-      {
-        id: "1",
-        type: "entrada",
-        category: "vendas",
-        description: "Venda do dia - Mesa 5",
-        amount: 198.40,
-        paymentMethod: "cartao",
-        date: new Date(),
-        reference: "Mesa 5",
-      },
-      {
-        id: "2",
-        type: "entrada",
-        category: "vendas",
-        description: "Venda do dia - Mesa 7",
-        amount: 245.80,
-        paymentMethod: "pix",
-        date: new Date(),
-        reference: "Mesa 7",
-      },
-      {
-        id: "3",
-        type: "saida",
-        category: "fornecedor",
-        description: "Compra de ingredientes",
-        amount: 1200.00,
-        paymentMethod: "transferencia",
-        date: new Date(),
-        reference: "Fornecedor ABC",
-      },
-      {
-        id: "4",
-        type: "saida",
-        category: "salário",
-        description: "Pagamento funcionários",
-        amount: 11600.00,
-        paymentMethod: "transferencia",
-        date: new Date(),
-      },
-      {
-        id: "5",
-        type: "entrada",
-        category: "vendas",
-        description: "Venda do dia - Mesa 1",
-        amount: 156.90,
-        paymentMethod: "dinheiro",
-        date: new Date(),
-        reference: "Mesa 1",
-      },
-    ];
-    setTransactions(mockTransactions);
-  }, []);
 
   const filteredTransactions = transactions.filter(
     (transaction) =>

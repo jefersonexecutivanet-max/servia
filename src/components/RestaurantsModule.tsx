@@ -56,6 +56,8 @@ const PIX_KEY = "finho60@hotmail.com";
 const SETUP_FEE = 500;
 const MONTHLY_FEE = 100;
 
+const THIRTY_DAYS_IN_MS = 30 * 24 * 60 * 60 * 1000;
+
 const emptyForm: FormState = {
   name: "",
   cnpj: "",
@@ -239,7 +241,7 @@ export default function RestaurantsModule({
         status: "active",
         paidAt: serverTimestamp(),
         activatedAt: serverTimestamp(),
-        monthlyPaidUntil: Timestamp.fromMillis(Date.now() + 30 * 24 * 60 * 60 * 1000),
+        monthlyPaidUntil: Timestamp.fromMillis(THIRTY_DAYS_IN_MS),
       });
       setNotice(`Pagamento registrado. ${restaurant.name} está liberado por mais 30 dias.`);
     } catch (paymentError) {

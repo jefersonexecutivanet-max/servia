@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Plus, Minus, Edit, Trash2, Search, Package, AlertTriangle } from "lucide-react";
 
 interface StockItem {
@@ -12,8 +12,61 @@ interface StockItem {
   lastUpdated: Date;
 }
 
+const mockItems: StockItem[] = [
+  {
+    id: "1",
+    name: "Coca-Cola 2L",
+    category: "bebidas",
+    quantity: 24,
+    unit: "un",
+    minQuantity: 10,
+    price: 8.50,
+    lastUpdated: new Date(),
+  },
+  {
+    id: "2",
+    name: "Carne Bovina (kg)",
+    category: "alimentos",
+    quantity: 15,
+    unit: "kg",
+    minQuantity: 20,
+    price: 45.00,
+    lastUpdated: new Date(),
+  },
+  {
+    id: "3",
+    name: "Pratos Descartáveis",
+    category: "utensílios",
+    quantity: 100,
+    unit: "un",
+    minQuantity: 50,
+    price: 0.30,
+    lastUpdated: new Date(),
+  },
+  {
+    id: "4",
+    name: "Detergente",
+    category: "limpeza",
+    quantity: 5,
+    unit: "un",
+    minQuantity: 10,
+    price: 2.50,
+    lastUpdated: new Date(),
+  },
+  {
+    id: "5",
+    name: "Cerveja Lata",
+    category: "bebidas",
+    quantity: 48,
+    unit: "un",
+    minQuantity: 24,
+    price: 6.00,
+    lastUpdated: new Date(),
+  },
+];
+
 export default function StockModule() {
-  const [items, setItems] = useState<StockItem[]>([]);
+  const [items, setItems] = useState<StockItem[]>(mockItems);
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("todos");
   const [showModal, setShowModal] = useState(false);
@@ -28,63 +81,6 @@ export default function StockModule() {
   });
 
   const categories = ["todos", "bebidas", "alimentos", "utensílios", "limpeza", "outros"];
-
-  // Dados mockados para o módulo
-  useEffect(() => {
-    const mockItems: StockItem[] = [
-      {
-        id: "1",
-        name: "Coca-Cola 2L",
-        category: "bebidas",
-        quantity: 24,
-        unit: "un",
-        minQuantity: 10,
-        price: 8.50,
-        lastUpdated: new Date(),
-      },
-      {
-        id: "2",
-        name: "Carne Bovina (kg)",
-        category: "alimentos",
-        quantity: 15,
-        unit: "kg",
-        minQuantity: 20,
-        price: 45.00,
-        lastUpdated: new Date(),
-      },
-      {
-        id: "3",
-        name: "Pratos Descartáveis",
-        category: "utensílios",
-        quantity: 100,
-        unit: "un",
-        minQuantity: 50,
-        price: 0.30,
-        lastUpdated: new Date(),
-      },
-      {
-        id: "4",
-        name: "Detergente",
-        category: "limpeza",
-        quantity: 5,
-        unit: "un",
-        minQuantity: 10,
-        price: 2.50,
-        lastUpdated: new Date(),
-      },
-      {
-        id: "5",
-        name: "Cerveja Lata",
-        category: "bebidas",
-        quantity: 48,
-        unit: "un",
-        minQuantity: 24,
-        price: 6.00,
-        lastUpdated: new Date(),
-      },
-    ];
-    setItems(mockItems);
-  }, []);
 
   const filteredItems = items.filter(
     (item) =>

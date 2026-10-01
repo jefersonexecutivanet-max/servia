@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { TrendingUp, Users, DollarSign, Clock, UtensilsCrossed, Download, Calendar } from "lucide-react";
 
 interface ReportData {
@@ -16,11 +16,55 @@ interface TopItem {
   revenue: number;
 }
 
+const mockData: ReportData[] = [
+  {
+    period: "Hoje",
+    revenue: 3842.90,
+    orders: 48,
+    customers: 120,
+    averageTicket: 80.06,
+    tableTurnover: 1.8,
+  },
+  {
+    period: "Ontem",
+    revenue: 3250.50,
+    orders: 42,
+    customers: 105,
+    averageTicket: 77.39,
+    tableTurnover: 1.6,
+  },
+  {
+    period: "Semana Passada",
+    revenue: 21800.00,
+    orders: 295,
+    customers: 735,
+    averageTicket: 73.90,
+    tableTurnover: 1.7,
+  },
+];
+
+const mockTopProducts: TopItem[] = [
+  { name: "Hambúrguer Artesanal", quantity: 85, revenue: 2720.00 },
+  { name: "Pizza Margherita", quantity: 62, revenue: 4333.80 },
+  { name: "Coca-Cola 2L", quantity: 95, revenue: 807.50 },
+  { name: "Filé Mignon", quantity: 45, revenue: 2677.50 },
+  { name: "Cerveja Lata", quantity: 120, revenue: 720.00 },
+];
+
+const mockPeakHours = [
+  { hour: "12:00 - 13:00", orders: 12 },
+  { hour: "13:00 - 14:00", orders: 18 },
+  { hour: "14:00 - 15:00", orders: 8 },
+  { hour: "19:00 - 20:00", orders: 15 },
+  { hour: "20:00 - 21:00", orders: 22 },
+  { hour: "21:00 - 22:00", orders: 14 },
+];
+
 export default function ReportsModule() {
   const [selectedPeriod, setSelectedPeriod] = useState("hoje");
-  const [reportData, setReportData] = useState<ReportData[]>([]);
-  const [topProducts, setTopProducts] = useState<TopItem[]>([]);
-  const [peakHours, setPeakHours] = useState<{ hour: string; orders: number }[]>([]);
+  const [reportData] = useState<ReportData[]>(mockData);
+  const [topProducts] = useState<TopItem[]>(mockTopProducts);
+  const [peakHours] = useState<{ hour: string; orders: number }[]>(mockPeakHours);
 
   const periods = [
     { value: "hoje", label: "Hoje" },
@@ -28,57 +72,6 @@ export default function ReportsModule() {
     { value: "mes", label: "Este Mês" },
     { value: "ano", label: "Este Ano" },
   ];
-
-  useEffect(() => {
-    // Dados mockados para os relatórios
-    const mockData: ReportData[] = [
-      {
-        period: "Hoje",
-        revenue: 3842.90,
-        orders: 48,
-        customers: 120,
-        averageTicket: 80.06,
-        tableTurnover: 1.8,
-      },
-      {
-        period: "Ontem",
-        revenue: 3250.50,
-        orders: 42,
-        customers: 105,
-        averageTicket: 77.39,
-        tableTurnover: 1.6,
-      },
-      {
-        period: "Semana Passada",
-        revenue: 21800.00,
-        orders: 295,
-        customers: 735,
-        averageTicket: 73.90,
-        tableTurnover: 1.7,
-      },
-    ];
-
-    const mockTopProducts: TopItem[] = [
-      { name: "Hambúrguer Artesanal", quantity: 85, revenue: 2720.00 },
-      { name: "Pizza Margherita", quantity: 62, revenue: 4333.80 },
-      { name: "Coca-Cola 2L", quantity: 95, revenue: 807.50 },
-      { name: "Filé Mignon", quantity: 45, revenue: 2677.50 },
-      { name: "Cerveja Lata", quantity: 120, revenue: 720.00 },
-    ];
-
-    const mockPeakHours = [
-      { hour: "12:00 - 13:00", orders: 12 },
-      { hour: "13:00 - 14:00", orders: 18 },
-      { hour: "14:00 - 15:00", orders: 8 },
-      { hour: "19:00 - 20:00", orders: 15 },
-      { hour: "20:00 - 21:00", orders: 22 },
-      { hour: "21:00 - 22:00", orders: 14 },
-    ];
-
-    setReportData(mockData);
-    setTopProducts(mockTopProducts);
-    setPeakHours(mockPeakHours);
-  }, [selectedPeriod]);
 
   const currentData = reportData[0] || {
     period: selectedPeriod,
