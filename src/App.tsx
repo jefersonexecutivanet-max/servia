@@ -391,7 +391,24 @@ function Sidebar({
   const mainMenu: {
     label: ModuleName;
     icon: ElementType;
-  }[] = [
+  }[] = systemAdmin ? [
+    {
+      label: "Dashboard",
+      icon: LayoutDashboard,
+    },
+    {
+      label: "Restaurantes",
+      icon: Store,
+    },
+    {
+      label: "Caixa",
+      icon: CircleDollarSign,
+    },
+    {
+      label: "Relatórios",
+      icon: BarChart3,
+    },
+  ] : [
     {
       label: "Dashboard",
       icon: LayoutDashboard,
@@ -425,8 +442,7 @@ function Sidebar({
   const managementMenu: {
     label: ModuleName;
     icon: ElementType;
-  }[] = [
-    ...(systemAdmin ? [{ label: "Restaurantes" as ModuleName, icon: Store }] : []),
+  }[] = systemAdmin ? [] : [
     {
       label: "Estoque",
       icon: Box,
@@ -448,7 +464,7 @@ function Sidebar({
   const systemMenu: {
     label: ModuleName;
     icon: ElementType;
-  }[] = [
+  }[] = systemAdmin ? [] : [
     {
       label: "Configurações",
       icon: Settings,
@@ -524,32 +540,36 @@ function Sidebar({
           <div className="sidebar-section">
             {!collapsed && (
               <span className="sidebar-section-title">
-                PRINCIPAL
+                {systemAdmin ? "GESTÃO FINANCEIRA" : "PRINCIPAL"}
               </span>
             )}
 
             {mainMenu.map(renderItem)}
           </div>
 
-          <div className="sidebar-section">
-            {!collapsed && (
-              <span className="sidebar-section-title">
-                GESTÃO
-              </span>
-            )}
+          {managementMenu.length > 0 && (
+            <div className="sidebar-section">
+              {!collapsed && (
+                <span className="sidebar-section-title">
+                  GESTÃO
+                </span>
+              )}
 
-            {managementMenu.map(renderItem)}
-          </div>
+              {managementMenu.map(renderItem)}
+            </div>
+          )}
 
-          <div className="sidebar-section">
-            {!collapsed && (
-              <span className="sidebar-section-title">
-                SISTEMA
-              </span>
-            )}
+          {systemMenu.length > 0 && (
+            <div className="sidebar-section">
+              {!collapsed && (
+                <span className="sidebar-section-title">
+                  SISTEMA
+                </span>
+              )}
 
-            {systemMenu.map(renderItem)}
-          </div>
+              {systemMenu.map(renderItem)}
+            </div>
+          )}
         </div>
 
         <div className="sidebar-bottom">
@@ -700,10 +720,205 @@ function Topbar({
 
 function DashboardContent({
   setActive,
+  systemAdmin = false,
 }: {
   setActive: (value: ModuleName) => void;
+  systemAdmin?: boolean;
 }) {
-  // Dados mockados para o dashboard (apenas visualização)
+  if (systemAdmin) {
+    // Dashboard de gestão financeira para administrador
+    return (
+      <div className="dashboard-page">
+        <div className="dashboard-heading">
+          <div>
+            <span className="eyebrow">
+              GESTÃO FINANCEIRA
+            </span>
+
+            <h1>Bom dia, administrador.</h1>
+
+            <p>
+              Visão geral financeira dos restaurantes cadastrados no Servia.
+            </p>
+          </div>
+
+          <div className="dashboard-date">
+            <span>HOJE</span>
+
+            <strong>
+              {new Date().toLocaleDateString(
+                "pt-BR",
+                {
+                  day: "2-digit",
+                  month: "long",
+                  year: "numeric",
+                },
+              )}
+            </strong>
+          </div>
+        </div>
+
+        <div className="dashboard-stats">
+          <div className="dashboard-stat">
+            <div className="stat-icon green">
+              <CircleDollarSign size={20} />
+            </div>
+
+            <div>
+              <span>Receita Mensal</span>
+
+              <strong>R$ 28.450,00</strong>
+
+              <small className="positive">
+                +15,2% vs. mês anterior
+              </small>
+            </div>
+          </div>
+
+          <div className="dashboard-stat">
+            <div className="stat-icon orange">
+              <Store size={20} />
+            </div>
+
+            <div>
+              <span>Restaurantes Ativos</span>
+
+              <strong>12</strong>
+
+              <small className="positive">
+                +3 novos este mês
+              </small>
+            </div>
+          </div>
+
+          <div className="dashboard-stat">
+            <div className="stat-icon blue">
+              <BarChart3 size={20} />
+            </div>
+
+            <div>
+              <span>Pagamentos Pendentes</span>
+
+              <strong>R$ 4.500,00</strong>
+
+              <small className="neutral">
+                5 aguardando confirmação
+              </small>
+            </div>
+          </div>
+
+          <div className="dashboard-stat">
+            <div className="stat-icon purple">
+              <Users size={20} />
+            </div>
+
+            <div>
+              <span>Total de Usuários</span>
+
+              <strong>48</strong>
+
+              <small className="positive">
+                +12 novos usuários
+              </small>
+            </div>
+          </div>
+        </div>
+
+        <div className="dashboard-grid">
+          <div className="dashboard-card">
+            <div className="card-header">
+              <div>
+                <h3>Ações Rápidas</h3>
+                <p>Gerencie seus restaurantes e finanças</p>
+              </div>
+            </div>
+
+            <div className="dashboard-actions">
+              <button
+                className="dashboard-action-btn"
+                onClick={() => setActive("Restaurantes")}
+              >
+                <Store size={24} />
+                <span>Cadastrar Restaurante</span>
+                <small>Adicionar novo estabelecimento</small>
+              </button>
+
+              <button
+                className="dashboard-action-btn"
+                onClick={() => setActive("Caixa")}
+              >
+                <CircleDollarSign size={24} />
+                <span>Ver Movimentações</span>
+                <small>Consultar entradas e saídas</small>
+              </button>
+
+              <button
+                className="dashboard-action-btn"
+                onClick={() => setActive("Relatórios")}
+              >
+                <BarChart3 size={24} />
+                <span>Relatórios Financeiros</span>
+                <small>Análise de receitas e despesas</small>
+              </button>
+            </div>
+          </div>
+
+          <div className="dashboard-card">
+            <div className="card-header">
+              <div>
+                <h3>Últimos Pagamentos</h3>
+                <p>Restaurantes que pagaram recentemente</p>
+              </div>
+            </div>
+
+            <div className="payment-list">
+              <div className="payment-item">
+                <div className="payment-info">
+                  <strong>Restaurante ABC</strong>
+                  <small>Plano Mensal</small>
+                </div>
+                <div className="payment-amount positive">
+                  +R$ 100,00
+                </div>
+              </div>
+
+              <div className="payment-item">
+                <div className="payment-info">
+                  <strong>Pizzaria do João</strong>
+                  <small>Plano Mensal</small>
+                </div>
+                <div className="payment-amount positive">
+                  +R$ 100,00
+                </div>
+              </div>
+
+              <div className="payment-item">
+                <div className="payment-info">
+                  <strong>Churrascaria Sul</strong>
+                  <small>Plano Mensal</small>
+                </div>
+                <div className="payment-amount positive">
+                  +R$ 100,00
+                </div>
+              </div>
+
+              <div className="payment-item">
+                <div className="payment-info">
+                  <strong>Café Central</strong>
+                  <small>Plano Mensal</small>
+                </div>
+                <div className="payment-amount positive">
+                  +R$ 100,00
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Dashboard operacional para restaurantes
   const occupied = 4;
   const free = 2;
   const reserved = 1;
@@ -1222,6 +1437,7 @@ function AdminApplication({
       return (
         <DashboardContent
           setActive={setActive}
+          systemAdmin={systemAdmin}
         />
       );
     }
