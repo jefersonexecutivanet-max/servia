@@ -13,13 +13,15 @@ import {
   Printer,
   Moon,
   Sun,
+  User,
+  Lock,
 } from "lucide-react";
-import { updateProfile } from "firebase/auth";
+import { updateProfile, updatePassword } from "firebase/auth";
 import { doc, onSnapshot, serverTimestamp, setDoc } from "firebase/firestore";
 import { auth, db } from "../firebase";
 import { testPrinter, getRestaurantPrinterSettings, getUserPrinterSettings } from "../utils/printer";
 
-type SettingsSection = "restaurant" | "payment" | "hours" | "notifications" | "printers" | "system";
+type SettingsSection = "restaurant" | "payment" | "hours" | "notifications" | "printers" | "system" | "account";
 
 type RestaurantSettings = {
   name: string;
@@ -143,6 +145,12 @@ export default function SettingsModule() {
 
   // User printer settings (caixa)
   const [userPrinter, setUserPrinter] = useState(getUserPrinterSettings);
+
+  // Account settings
+  const [passwordChange, setPasswordChange] = useState({
+    newPassword: "",
+    confirmPassword: "",
+  });
 
   // Apply theme changes to document
   useEffect(() => {
@@ -432,6 +440,15 @@ export default function SettingsModule() {
               <Printer size={18} />
               <span>Impressoras</span>
               {activeSection === "printers" && <ChevronRight size={16} />}
+            </button>
+
+            <button
+              className={`settings-nav-item ${activeSection === "account" ? "active" : ""}`}
+              onClick={() => setActiveSection("account")}
+            >
+              <User size={18} />
+              <span>Conta</span>
+              {activeSection === "account" && <ChevronRight size={16} />}
             </button>
 
             <button
@@ -1149,6 +1166,125 @@ export default function SettingsModule() {
                       <Save size={18} />
                       {busy ? "Salvando..." : "Salvar"}
                     </button>
+                  </div>
+                </div>
+              </div>
+            </section>
+          )}
+
+          {activeSection === "account" && (
+            <section className="settings-section">
+              <div className="settings-section-header">
+                <div className="section-icon system-icon">
+                  <User size={24} />
+                </div>
+                <div>
+                  <h2>Configurações da Conta</h2>
+                  <p>Gerencie sua senha e informações de acesso.</p>
+                </div>
+              </div>
+
+              <div className="settings-grid">
+                <div className="settings-card">
+                  <div className="settings-card-header">
+                    <h3>Alterar Senha</h3>
+                  </div>
+
+                  <div className="settings-form">
+                    <label className="form-field">
+                      <span>Nova senha</span>
+                      <input
+                        type="password"
+                        value={passwordChange.newPassword}
+                        onChange={(e) => setPasswordChange({ ...passwordChange, newPassword: e.target.value })}
+                        placeholder="Mínimo 6 caracteres"
+                      />
+                    </label>
+
+                    <label className="form-field">
+                      <span>Confirmar nova senha</span>
+                      <input
+                        type="password"
+                        value={passwordChange.confirmPassword}
+                        onChange={(e) => setPasswordChange({ ...passwordChange, confirmPassword: e.target.value })}
+                        placeholder="Digite a nova senha novamente"
+                      />
+                    </label>
+                  </div>
+
+                  <div className="settings-card-actions">
+                    <button
+                      className="primary-button"
+                      type="button"
+                      onClick={async () => {
+                        if (!passwordChange.newPassword || !passwordChange.confirmPassword) {
+                          showMessage("Preencha a nova senha e a confirmação.");
+                          return;
+                        }
+                        if (passwordChange.newPassword.length < 6) {
+                          showMessage("A nova senha deve ter pelo menos 6 caracteres.");
+                          return;
+                        }
+                        if (passwordChange.newPassword !== passwordChange.confirmPassword) {
+                          showMessage("As senhas não coincidem.");
+                          return;
+                        }
+                        setBusy(true);
+                        try {
+                          const user = auth.currentUser;
+                          if (!user) {
+                            showMessage("Usuário não autenticado.");
+                            setBusy(false);
+                            return;
+                          }
+                          await updatePassword(user, passwordChange.newPassword);
+                          setPasswordChange({ newPassword: "", confirmPassword: "" });
+                          showMessage("Senha alterada com sucesso!");
+                        } catch (error) {
+                          console.error("Erro ao alterar senha:", error);
+                          const code = typeof error === "object" && error && "code" in error
+                            ? String((error as { code: string }).code)
+                            : "";
+                          if (code === "auth/requires-recent-login") {
+                            showMessage("Faça login novamente para alterar a senha por segurança.");
+                          } else {
+                            showMessage("Erro ao alterar senha. Tente novamente.");
+                          }
+                        } finally {
+                          setBusy(false);
+                        }
+                      }}
+                      disabled={busy}
+                    >
+                      <Lock size={18} />
+                      {busy ? "Alterando..." : "Alterar Senha"}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="settings-card">
+                  <div className="settings-card-header">
+                    <h3>Informações da Conta</h3>
+                  </div>
+
+                  <div className="settings-form">
+                    <label className="form-field">
+                      <span>E-mail</span>
+                      <input
+                        type="email"
+                        value={auth.currentUser?.email || ""}
+                        disabled
+                      />
+                    </label>
+
+                    <label className="form-field">
+                      <span>UID</span>
+                      <input
+                        type="text"
+                        value={auth.currentUser?.uid || ""}
+                        disabled
+                      />
+                    </label>
                   </div>
                 </div>
               </div>

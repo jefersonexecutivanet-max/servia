@@ -34,6 +34,7 @@ import {
   sendEmailVerification,
   updateProfile,
   reload,
+  sendPasswordResetEmail,
   type User,
 } from "firebase/auth";
 import {
@@ -125,7 +126,7 @@ const ownerIdentity = {
 ========================================================= */
 
 function LoginScreen({ waiterMode = false }: { waiterMode?: boolean } = {}) {
-  const [mode, setMode] = useState<"login" | "register">("login");
+  const [mode, setMode] = useState<"login" | "register" | "reset">("login");
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -134,6 +135,36 @@ function LoginScreen({ waiterMode = false }: { waiterMode?: boolean } = {}) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+
+  async function handlePasswordReset() {
+    if (!email.trim()) {
+      setError("Digite seu e-mail para recuperar a senha.");
+      return;
+    }
+
+    setLoading(true);
+    setError("");
+    try {
+      await sendPasswordResetEmail(auth, email.trim().toLowerCase());
+      setNotice("E-mail de recuperação enviado. Verifique sua caixa de entrada.");
+      setMode("login");
+    } catch (err: unknown) {
+      const code =
+        typeof err === "object" && err && "code" in err
+          ? String((err as { code: string }).code)
+          : "";
+
+      if (code === "auth/user-not-found") {
+        setError("E-mail não encontrado.");
+      } else if (code === "auth/invalid-email") {
+        setError("E-mail inválido.");
+      } else {
+        setError("Não foi possível enviar o e-mail de recuperação.");
+      }
+    } finally {
+      setLoading(false);
+    }
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -333,24 +364,86 @@ function LoginScreen({ waiterMode = false }: { waiterMode?: boolean } = {}) {
             </button>
           </form>
 
-          {waiterMode && (
+          {mode === "reset" && (
+            <div className="password-reset-form">
+              <h3>Recuperar Senha</h3>
+              <p>Digite seu e-mail para receber um link de redefinição de senha.</p>
+              
+              <div className="form-field">
+                <label>E-mail</label>
+                <div className="input-wrapper">
+                  <span className="input-at">@</span>
+                  <input
+                    type="email"
+                    placeholder="seu@email.com"
+                    value={email}
+                    onChange={(event) => setEmail(event.target.value)}
+                    required
+                  />
+                </div>
+              </div>
+
+              <button
+                type="button"
+                className="login-submit"
+                onClick={handlePasswordReset}
+                disabled={loading}
+              >
+                {loading ? "Enviando..." : "Enviar E-mail de Recuperação"}
+              </button>
+
+              <button
+                type="button"
+                className="login-switch-button"
+                onClick={() => {
+                  setMode("login");
+                  setError("");
+                  setNotice("");
+                }}
+              >
+                Voltar para o login
+              </button>
+            </div>
+          )}
+
+          {mode !== "reset" && (
             <div className="login-switch">
               <span>
                 {mode === "login"
-                  ? "Primeiro acesso ao Servia?"
+                  ? (waiterMode ? "Primeiro acesso ao Servia?" : "Esqueceu sua senha?")
                   : "Já possui uma conta?"}
               </span>
 
               <button
                 type="button"
                 onClick={() => {
-                  setMode(mode === "login" ? "register" : "login");
+                  if (mode === "login") {
+                    setMode("reset");
+                  } else {
+                    setMode("login");
+                  }
                   setError("");
                   setNotice("");
                 }}
               >
-                {mode === "login" ? "Criar conta" : "Fazer login"}
+                {mode === "login" ? "Recuperar senha" : "Fazer login"}
               </button>
+
+              {mode === "login" && waiterMode && (
+                <>
+                  <span>·</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMode("register");
+                      setError("");
+                      setNotice("");
+                    }}
+                  >
+                    Criar conta
+                  </button>
+                </>
+              )}
             </div>
           )}
         </div>

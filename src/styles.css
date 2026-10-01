@@ -366,6 +366,27 @@ input:focus-visible {
   font-weight: 800;
 }
 
+.password-reset-form {
+  margin-top: 20px;
+  padding: 20px;
+  border: 1px solid #1e2a26;
+  border-radius: 12px;
+  background: #0b1512;
+}
+
+.password-reset-form h3 {
+  margin: 0 0 8px 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: #e8f1ed;
+}
+
+.password-reset-form p {
+  margin: 0 0 16px 0;
+  font-size: 13px;
+  color: #71807b;
+}
+
 .login-notice {
   margin: 12px 0;
   padding: 11px 12px;
