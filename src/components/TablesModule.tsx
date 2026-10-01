@@ -17,11 +17,13 @@ import {
   Pencil,
   Trash2,
   Move,
+  Store,
+  ChevronDown,
 } from "lucide-react";
 
 import { formatCurrency } from "../utils/format";
 import { generatePrintContent, printContent as printToPrinter, getUserPrinterSettings } from "../utils/printer";
-import { collection, deleteDoc, deleteField, doc, onSnapshot, query, setDoc, updateDoc, where } from "firebase/firestore";
+import { collection, deleteDoc, deleteField, doc, onSnapshot, query, setDoc, updateDoc, where, getDocs } from "firebase/firestore";
 import { db } from "../firebase";
 import { useRestaurantScope } from "../contexts/RestaurantContext";
 import type { Table, TableStatus } from "../types/table";
@@ -132,7 +134,7 @@ function getTableUrl(restaurantId: string, tableNumber: number) {
 }
 
 export default function TablesModule() {
-  const { restaurantId } = useRestaurantScope();
+  const { restaurantId, systemAdmin, setRestaurantId } = useRestaurantScope();
   const [tables, setTables] =
     useState<Table[]>(initialTables);
 
@@ -164,6 +166,8 @@ export default function TablesModule() {
     useState(false);
 
   const [draggingTable, setDraggingTable] = useState<number | null>(null);
+  const [availableRestaurants, setAvailableRestaurants] = useState<Array<{ id: string; name: string }>>([]);
+  const [showRestaurantDropdown, setShowRestaurantDropdown] = useState(false);
 
   useEffect(() => {
     if (!restaurantId) {
@@ -180,6 +184,19 @@ export default function TablesModule() {
       },
     );
   }, [restaurantId]);
+
+  useEffect(() => {
+    // Load available restaurants for system admin
+    if (systemAdmin) {
+      getDocs(query(collection(db, "restaurants"), where("status", "==", "active")))
+        .then((snapshot) => {
+          setAvailableRestaurants(snapshot.docs.map((doc) => ({ id: doc.id, name: String(doc.data().name || "Restaurante") })));
+        })
+        .catch((error) => {
+          console.error("Erro ao carregar restaurantes:", error);
+        });
+    }
+  }, [systemAdmin]);
 
   const occupied = useMemo(
     () =>
@@ -584,11 +601,45 @@ export default function TablesModule() {
           </p>
         </div>
 
+        {systemAdmin && !restaurantId && availableRestaurants.length > 0 && (
+          <div className="restaurant-selector">
+            <button
+              className="secondary-button"
+              onClick={() => setShowRestaurantDropdown(!showRestaurantDropdown)}
+            >
+              <Store size={18} />
+              {restaurantId
+                ? availableRestaurants.find(r => r.id === restaurantId)?.name || "Restaurante selecionado"
+                : "Selecione um restaurante"}
+              <ChevronDown size={16} />
+            </button>
+
+            {showRestaurantDropdown && (
+              <div className="dropdown-menu">
+                {availableRestaurants.map((restaurant) => (
+                  <button
+                    key={restaurant.id}
+                    type="button"
+                    className="dropdown-item"
+                    onClick={() => {
+                      setRestaurantId(restaurant.id);
+                      setShowRestaurantDropdown(false);
+                    }}
+                  >
+                    {restaurant.name}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         <div className="module-header-actions">
           <button
             className="secondary-button"
             onClick={openCreateTable}
             type="button"
+            disabled={!restaurantId}
           >
             <Plus size={18} />
             Nova mesa
@@ -598,6 +649,7 @@ export default function TablesModule() {
             className="secondary-button"
             onClick={openFirstFreeQR}
             type="button"
+            disabled={!restaurantId}
           >
             <QrCode size={18} />
             QR Code
@@ -607,6 +659,7 @@ export default function TablesModule() {
             className="primary-button"
             onClick={openFirstFreeTap}
             type="button"
+            disabled={!restaurantId}
           >
             <Radio size={18} />
             Configurar Tap

@@ -4977,6 +4977,68 @@ input:focus-visible {
   font-size: 12px;
 }
 
+.warning-banner {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 20px;
+  margin-bottom: 24px;
+  border: 1px solid #3d2b1a;
+  border-radius: 12px;
+  background: #1a1714;
+  color: #d4a853;
+}
+
+.warning-banner strong {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 14px;
+}
+
+.warning-banner p {
+  margin: 0;
+  font-size: 13px;
+  color: #9e8460;
+}
+
+.restaurant-selector {
+  position: relative;
+}
+
+.dropdown-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 100;
+  min-width: 200px;
+  padding: 8px;
+  border: 1px solid #282828;
+  border-radius: 8px;
+  background: #1a1a1a;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+}
+
+.dropdown-item {
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #e8e8e8;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.dropdown-item:hover {
+  background: #282828;
+}
+
+.dropdown-item:active {
+  background: #333;
+}
+
 .orders-toolbar,
 .menu-filters {
   display: flex;
