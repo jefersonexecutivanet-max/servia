@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 
 import { formatCurrency } from "../utils/format";
+import { generatePrintContent, printContent as printToPrinter, getUserPrinterSettings } from "../utils/printer";
 import { collection, deleteDoc, deleteField, doc, onSnapshot, query, setDoc, updateDoc, where } from "firebase/firestore";
 import { db } from "../firebase";
 import { useRestaurantScope } from "../contexts/RestaurantContext";
@@ -452,6 +453,31 @@ export default function TablesModule() {
     }
 
     try {
+      // Print bill automatically if enabled
+      const userPrinterSettings = getUserPrinterSettings();
+      if (userPrinterSettings.printerEnabled) {
+        const billItems = selectedItems.map(item => ({
+          name: item.name,
+          quantity: item.quantity,
+          price: item.price,
+        }));
+
+        const billContent = generatePrintContent(
+          "CONTA FINALIZADA",
+          `MESA-${selectedTable.number}-${Date.now().toString().slice(-6)}`,
+          selectedTable.number,
+          billItems,
+          closingTotal,
+          {
+            "Pagamento": paymentMethod === "pix" ? "Pix" : paymentMethod === "card" ? "Cartão" : "Dinheiro",
+            "Taxa de serviço": formatCurrency(serviceFee),
+            "Garçom": selectedTable.customer || "Não informado",
+          },
+          userPrinterSettings.paperWidth,
+        );
+        await printToPrinter(billContent, userPrinterSettings);
+      }
+
       await updateDoc(doc(db, "tables", `${restaurantId}_${selectedTable.number}`), {
         status: "livre",
         guests: 0,

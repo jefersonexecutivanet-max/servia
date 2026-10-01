@@ -342,11 +342,26 @@ export default function RestaurantsModule({
               <button type="button" onClick={() => setShowForm(false)} aria-label="Fechar" disabled={busy}><X size={18} /></button>
             </div>
             <div className="modal-body">
-              <label className="form-field"><span>Nome do restaurante</span><input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required autoFocus /></label>
-              <label className="form-field"><span>CNPJ</span><input value={form.cnpj} onChange={(event) => setForm({ ...form, cnpj: event.target.value })} placeholder="00.000.000/0000-00" required /></label>
-              <label className="form-field"><span>Responsável</span><input value={form.ownerName} onChange={(event) => setForm({ ...form, ownerName: event.target.value })} required /></label>
-              <label className="form-field"><span>Usuário (e-mail)</span><input type="email" value={form.ownerEmail} onChange={(event) => setForm({ ...form, ownerEmail: event.target.value })} required /></label>
-              <label className="form-field"><span>Senha inicial</span><input type="password" autoComplete="new-password" minLength={6} value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} required /></label>
+              <div className="form-field">
+                <label>Nome do restaurante</label>
+                <input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required autoFocus />
+              </div>
+              <div className="form-field">
+                <label>CNPJ</label>
+                <input value={form.cnpj} onChange={(event) => setForm({ ...form, cnpj: event.target.value })} placeholder="00.000.000/0000-00" required />
+              </div>
+              <div className="form-field">
+                <label>Responsável</label>
+                <input value={form.ownerName} onChange={(event) => setForm({ ...form, ownerName: event.target.value })} required />
+              </div>
+              <div className="form-field">
+                <label>Usuário (e-mail)</label>
+                <input type="email" value={form.ownerEmail} onChange={(event) => setForm({ ...form, ownerEmail: event.target.value })} required />
+              </div>
+              <div className="form-field">
+                <label>Senha inicial</label>
+                <input type="password" autoComplete="new-password" minLength={6} value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} required />
+              </div>
               <div className="restaurant-pix-box">
                 <div><CircleDollarSign size={19} /><strong>Solicitação Pix</strong></div>
                 <p>Implantação {formatCurrency(SETUP_FEE)} + primeira mensalidade {formatCurrency(MONTHLY_FEE)} = <strong>{formatCurrency(SETUP_FEE + MONTHLY_FEE)}</strong></p>

@@ -17,8 +17,9 @@ import {
 import { updateProfile } from "firebase/auth";
 import { doc, onSnapshot, serverTimestamp, setDoc } from "firebase/firestore";
 import { auth, db } from "../firebase";
+import { testPrinter, getRestaurantPrinterSettings, getUserPrinterSettings } from "../utils/printer";
 
-type SettingsSection = "restaurant" | "payment" | "hours" | "notifications" | "system";
+type SettingsSection = "restaurant" | "payment" | "hours" | "notifications" | "printers" | "system";
 
 type RestaurantSettings = {
   name: string;
@@ -57,8 +58,6 @@ type NotificationSettings = {
 };
 
 type SystemSettings = {
-  printerEnabled: boolean;
-  autoPrintOrders: boolean;
   theme: "dark" | "light";
   language: "pt-BR" | "en-US";
 };
@@ -123,20 +122,27 @@ export default function SettingsModule() {
     if (savedSettings) {
       try {
         const parsed = JSON.parse(savedSettings);
-        return parsed as SystemSettings;
+        return {
+          theme: parsed.theme ?? "dark",
+          language: parsed.language ?? "pt-BR",
+        };
       } catch (error) {
         console.error("Erro ao carregar configurações:", error);
       }
     }
     return {
-      printerEnabled: true,
-      autoPrintOrders: false,
       theme: "dark",
       language: "pt-BR",
     };
   };
 
   const [system, setSystem] = useState<SystemSettings>(getInitialSystemSettings);
+
+  // Restaurant printer settings (cozinha)
+  const [restaurantPrinter, setRestaurantPrinter] = useState(getRestaurantPrinterSettings);
+
+  // User printer settings (caixa)
+  const [userPrinter, setUserPrinter] = useState(getUserPrinterSettings);
 
   // Apply theme changes to document
   useEffect(() => {
@@ -274,18 +280,7 @@ export default function SettingsModule() {
     try {
       // Save to localStorage for persistence
       localStorage.setItem("servia_settings", JSON.stringify(system));
-
-      // Test printer if enabled
-      if (system.printerEnabled) {
-        const testResult = await testPrinter();
-        if (!testResult) {
-          showMessage("Configurações salvas, mas impressora não detectada.");
-        } else {
-          showMessage("Configurações do sistema salvas com sucesso!");
-        }
-      } else {
-        showMessage("Configurações do sistema salvas com sucesso!");
-      }
+      showMessage("Configurações do sistema salvas com sucesso!");
     } catch (error) {
       console.error("Erro ao salvar configurações:", error);
       showMessage("Erro ao salvar configurações do sistema.");
@@ -294,61 +289,27 @@ export default function SettingsModule() {
     }
   }
 
-  async function testPrinter() {
+  async function saveRestaurantPrinterSettings() {
+    setBusy(true);
     try {
-      // Check if WebUSB is available
-      if ("usb" in navigator) {
-        const usb = (navigator as any).usb;
-        await usb.getDevices();
-        return true;
-      }
-
-      // Check if Web Bluetooth is available
-      if ("bluetooth" in navigator) {
-        return true;
-      }
-
-      // Fallback to window.print() test
-      const printTest = window.confirm("Testar impressora? Isso abrirá a janela de impressão.");
-      if (printTest) {
-        const testContent = `
-          <html>
-          <head><title>Teste de Impressão</title></head>
-          <body>
-            <h1>Teste de Impressão - Servia</h1>
-            <p>Sua impressora está configurada corretamente.</p>
-            <p>Data: ${new Date().toLocaleString("pt-BR")}</p>
-          </body>
-          </html>
-        `;
-        const printWindow = window.open("", "_blank");
-        if (printWindow) {
-          printWindow.document.write(testContent);
-          printWindow.document.close();
-          printWindow.print();
-        }
-        return true;
-      }
-
-      return false;
+      localStorage.setItem("servia_restaurant_printer", JSON.stringify(restaurantPrinter));
+      showMessage("Configurações da impressora da cozinha salvas com sucesso!");
     } catch (error) {
-      console.error("Erro ao testar impressora:", error);
-      return false;
+      console.error("Erro ao salvar configurações da impressora da cozinha:", error);
+      showMessage("Erro ao salvar configurações da impressora da cozinha.");
+    } finally {
+      setBusy(false);
     }
   }
 
-  async function configurePrinter() {
+  async function saveUserPrinterSettings() {
     setBusy(true);
     try {
-      const testResult = await testPrinter();
-      if (testResult) {
-        showMessage("Impressora configurada com sucesso!");
-      } else {
-        showMessage("Não foi possível configurar a impressora. Verifique a conexão.");
-      }
+      localStorage.setItem("servia_user_printer", JSON.stringify(userPrinter));
+      showMessage("Configurações da impressora do caixa salvas com sucesso!");
     } catch (error) {
-      console.error("Erro ao configurar impressora:", error);
-      showMessage("Erro ao configurar impressora.");
+      console.error("Erro ao salvar configurações da impressora do caixa:", error);
+      showMessage("Erro ao salvar configurações da impressora do caixa.");
     } finally {
       setBusy(false);
     }
@@ -465,6 +426,15 @@ export default function SettingsModule() {
             </button>
 
             <button
+              className={`settings-nav-item ${activeSection === "printers" ? "active" : ""}`}
+              onClick={() => setActiveSection("printers")}
+            >
+              <Printer size={18} />
+              <span>Impressoras</span>
+              {activeSection === "printers" && <ChevronRight size={16} />}
+            </button>
+
+            <button
               className={`settings-nav-item ${activeSection === "system" ? "active" : ""}`}
               onClick={() => setActiveSection("system")}
             >
@@ -514,27 +484,25 @@ export default function SettingsModule() {
                       />
                     </label>
 
-                    <div className="form-row">
-                      <label className="form-field">
-                        <span>Telefone</span>
-                        <input
-                          type="tel"
-                          value={restaurant.phone}
-                          onChange={(e) => setRestaurant({ ...restaurant, phone: e.target.value })}
-                          placeholder="(11) 99999-9999"
-                        />
-                      </label>
+                    <label className="form-field">
+                      <span>Telefone</span>
+                      <input
+                        type="tel"
+                        value={restaurant.phone}
+                        onChange={(e) => setRestaurant({ ...restaurant, phone: e.target.value })}
+                        placeholder="(11) 99999-9999"
+                      />
+                    </label>
 
-                      <label className="form-field">
-                        <span>E-mail</span>
-                        <input
-                          type="email"
-                          value={restaurant.email}
-                          onChange={(e) => setRestaurant({ ...restaurant, email: e.target.value })}
-                          placeholder="contato@restaurante.com"
-                        />
-                      </label>
-                    </div>
+                    <label className="form-field">
+                      <span>E-mail</span>
+                      <input
+                        type="email"
+                        value={restaurant.email}
+                        onChange={(e) => setRestaurant({ ...restaurant, email: e.target.value })}
+                        placeholder="contato@restaurante.com"
+                      />
+                    </label>
                   </div>
 
                   <div className="settings-card-actions">
@@ -928,22 +896,23 @@ export default function SettingsModule() {
             </section>
           )}
 
-          {activeSection === "system" && (
+          {activeSection === "printers" && (
             <section className="settings-section">
               <div className="settings-section-header">
                 <div className="section-icon system-icon">
-                  <SettingsIcon size={24} />
+                  <Printer size={24} />
                 </div>
                 <div>
-                  <h2>Configurações do Sistema</h2>
-                  <p>Preferências do sistema e integrações de hardware.</p>
+                  <h2>Configuração de Impressoras</h2>
+                  <p>Configure impressoras separadas para cozinha e caixa.</p>
                 </div>
               </div>
 
               <div className="settings-grid">
                 <div className="settings-card">
                   <div className="settings-card-header">
-                    <h3>Impressora</h3>
+                    <h3>Impressora da Cozinha</h3>
+                    <p>Imprime comandas automaticamente quando pedidos são recebidos</p>
                   </div>
 
                   <div className="settings-form">
@@ -951,31 +920,91 @@ export default function SettingsModule() {
                       <label className="toggle-row">
                         <input
                           type="checkbox"
-                          checked={system.printerEnabled}
-                          onChange={(e) => setSystem({ ...system, printerEnabled: e.target.checked })}
+                          checked={restaurantPrinter.printerEnabled}
+                          onChange={(e) => setRestaurantPrinter({ ...restaurantPrinter, printerEnabled: e.target.checked })}
                         />
                         <div>
-                          <strong>Impressora térmica</strong>
-                          <span>Habilitar impressora de cozinha</span>
+                          <strong>Habilitar impressora</strong>
+                          <span>Ativar impressora de cozinha</span>
                         </div>
                       </label>
 
                       <label className="toggle-row">
                         <input
                           type="checkbox"
-                          checked={system.autoPrintOrders}
-                          onChange={(e) => setSystem({ ...system, autoPrintOrders: e.target.checked })}
+                          checked={restaurantPrinter.autoPrintOrders}
+                          onChange={(e) => setRestaurantPrinter({ ...restaurantPrinter, autoPrintOrders: e.target.checked })}
+                          disabled={!restaurantPrinter.printerEnabled}
                         />
                         <div>
                           <strong>Impressão automática</strong>
-                          <span>Imprimir comandas automaticamente</span>
+                          <span>Imprimir comandas ao receber pedidos</span>
                         </div>
                       </label>
                     </div>
 
+                    <label className="form-field">
+                      <span>Tipo de conexão</span>
+                      <select
+                        value={restaurantPrinter.printerType}
+                        onChange={(e) => setRestaurantPrinter({ ...restaurantPrinter, printerType: e.target.value as "usb" | "bluetooth" | "network" | "browser" })}
+                        disabled={!restaurantPrinter.printerEnabled}
+                      >
+                        <option value="browser">Impressora do sistema (janela do navegador)</option>
+                        <option value="usb">USB (WebUSB - Chrome/Edge)</option>
+                        <option value="bluetooth">Bluetooth (Web Bluetooth - Chrome/Edge)</option>
+                        <option value="network">Rede (IP)</option>
+                      </select>
+                    </label>
+
+                    {restaurantPrinter.printerType === "network" && (
+                      <div className="form-row">
+                        <label className="form-field">
+                          <span>Endereço IP</span>
+                          <input
+                            type="text"
+                            value={restaurantPrinter.printerIp}
+                            onChange={(e) => setRestaurantPrinter({ ...restaurantPrinter, printerIp: e.target.value })}
+                            placeholder="192.168.1.100"
+                            disabled={!restaurantPrinter.printerEnabled}
+                          />
+                        </label>
+
+                        <label className="form-field">
+                          <span>Porta</span>
+                          <input
+                            type="number"
+                            value={restaurantPrinter.printerPort}
+                            onChange={(e) => setRestaurantPrinter({ ...restaurantPrinter, printerPort: parseInt(e.target.value) || 9100 })}
+                            disabled={!restaurantPrinter.printerEnabled}
+                          />
+                        </label>
+                      </div>
+                    )}
+
+                    <label className="form-field">
+                      <span>Largura do papel</span>
+                      <select
+                        value={restaurantPrinter.paperWidth}
+                        onChange={(e) => setRestaurantPrinter({ ...restaurantPrinter, paperWidth: parseInt(e.target.value) as 58 | 80 })}
+                        disabled={!restaurantPrinter.printerEnabled}
+                      >
+                        <option value="58">58mm (compacto)</option>
+                        <option value="80">80mm (padrão)</option>
+                      </select>
+                    </label>
+
                     <div className="settings-info">
                       <Info size={16} />
-                      <span>A impressora usa WebUSB ou Web Bluetooth para conexão direta.</span>
+                      <span>
+                        {restaurantPrinter.printerType === "browser"
+                          ? "Usa a impressora padrão do sistema. Certifique-se de configurar o tamanho do papel nas preferências de impressão."
+                          : restaurantPrinter.printerType === "usb"
+                            ? "Requer impressora USB compatível com WebUSB. Disponível no Chrome e Edge."
+                            : restaurantPrinter.printerType === "bluetooth"
+                              ? "Requer impressora Bluetooth compatível. Disponível no Chrome e Edge."
+                              : "Impressora de rede via IP. Certifique-se de que a impressora está na mesma rede."}
+                      </span>
                     </div>
                   </div>
 
@@ -983,8 +1012,17 @@ export default function SettingsModule() {
                     <button
                       className="secondary-button"
                       type="button"
-                      onClick={configurePrinter}
-                      disabled={busy}
+                      onClick={async () => {
+                        setBusy(true);
+                        const result = await testPrinter();
+                        setBusy(false);
+                        if (result) {
+                          showMessage("Teste realizado com sucesso!");
+                        } else {
+                          showMessage("Falha no teste");
+                        }
+                      }}
+                      disabled={busy || !restaurantPrinter.printerEnabled}
                     >
                       <Printer size={18} />
                       {busy ? "Testando..." : "Testar impressora"}
@@ -993,7 +1031,7 @@ export default function SettingsModule() {
                     <button
                       className="primary-button"
                       type="button"
-                      onClick={saveSystemSettings}
+                      onClick={saveRestaurantPrinterSettings}
                       disabled={busy}
                     >
                       <Save size={18} />
@@ -1002,6 +1040,134 @@ export default function SettingsModule() {
                   </div>
                 </div>
 
+                <div className="settings-card">
+                  <div className="settings-card-header">
+                    <h3>Impressora do Caixa</h3>
+                    <p>Imprime contas quando mesas são fechadas (configuração por usuário)</p>
+                  </div>
+
+                  <div className="settings-form">
+                    <div className="settings-toggles">
+                      <label className="toggle-row">
+                        <input
+                          type="checkbox"
+                          checked={userPrinter.printerEnabled}
+                          onChange={(e) => setUserPrinter({ ...userPrinter, printerEnabled: e.target.checked })}
+                        />
+                        <div>
+                          <strong>Habilitar impressora</strong>
+                          <span>Ativar impressora do caixa</span>
+                        </div>
+                      </label>
+                    </div>
+
+                    <label className="form-field">
+                      <span>Tipo de conexão</span>
+                      <select
+                        value={userPrinter.printerType}
+                        onChange={(e) => setUserPrinter({ ...userPrinter, printerType: e.target.value as "usb" | "bluetooth" | "network" | "browser" })}
+                        disabled={!userPrinter.printerEnabled}
+                      >
+                        <option value="browser">Impressora do sistema (janela do navegador)</option>
+                        <option value="usb">USB (WebUSB - Chrome/Edge)</option>
+                        <option value="bluetooth">Bluetooth (Web Bluetooth - Chrome/Edge)</option>
+                        <option value="network">Rede (IP)</option>
+                      </select>
+                    </label>
+
+                    {userPrinter.printerType === "network" && (
+                      <div className="form-row">
+                        <label className="form-field">
+                          <span>Endereço IP</span>
+                          <input
+                            type="text"
+                            value={userPrinter.printerIp}
+                            onChange={(e) => setUserPrinter({ ...userPrinter, printerIp: e.target.value })}
+                            placeholder="192.168.1.100"
+                            disabled={!userPrinter.printerEnabled}
+                          />
+                        </label>
+
+                        <label className="form-field">
+                          <span>Porta</span>
+                          <input
+                            type="number"
+                            value={userPrinter.printerPort}
+                            onChange={(e) => setUserPrinter({ ...userPrinter, printerPort: parseInt(e.target.value) || 9100 })}
+                            disabled={!userPrinter.printerEnabled}
+                          />
+                        </label>
+                      </div>
+                    )}
+
+                    <label className="form-field">
+                      <span>Largura do papel</span>
+                      <select
+                        value={userPrinter.paperWidth}
+                        onChange={(e) => setUserPrinter({ ...userPrinter, paperWidth: parseInt(e.target.value) as 58 | 80 })}
+                        disabled={!userPrinter.printerEnabled}
+                      >
+                        <option value="58">58mm (compacto)</option>
+                        <option value="80">80mm (padrão)</option>
+                      </select>
+                    </label>
+
+                    <div className="settings-info">
+                      <Info size={16} />
+                      <span>
+                        Esta configuração é específica para o usuário atual. Cada caixa pode ter sua própria impressora configurada.
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="settings-card-actions">
+                    <button
+                      className="secondary-button"
+                      type="button"
+                      onClick={async () => {
+                        setBusy(true);
+                        const result = await testPrinter();
+                        setBusy(false);
+                        if (result) {
+                          showMessage("Teste realizado com sucesso!");
+                        } else {
+                          showMessage("Falha no teste");
+                        }
+                      }}
+                      disabled={busy || !userPrinter.printerEnabled}
+                    >
+                      <Printer size={18} />
+                      {busy ? "Testando..." : "Testar impressora"}
+                    </button>
+
+                    <button
+                      className="primary-button"
+                      type="button"
+                      onClick={saveUserPrinterSettings}
+                      disabled={busy}
+                    >
+                      <Save size={18} />
+                      {busy ? "Salvando..." : "Salvar"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </section>
+          )}
+
+          {activeSection === "system" && (
+            <section className="settings-section">
+              <div className="settings-section-header">
+                <div className="section-icon system-icon">
+                  <SettingsIcon size={24} />
+                </div>
+                <div>
+                  <h2>Configurações do Sistema</h2>
+                  <p>Preferências do sistema e tema.</p>
+                </div>
+              </div>
+
+              <div className="settings-grid">
                 <div className="settings-card">
                   <div className="settings-card-header">
                     <h3>Aparência</h3>

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import {
   Printer,
   Clock3,
@@ -7,6 +7,7 @@ import {
   RefreshCw,
   UtensilsCrossed,
   CheckCircle2,
+  Info,
 } from "lucide-react";
 import {
   collection,
@@ -20,6 +21,7 @@ import {
 } from "firebase/firestore";
 import { db } from "../firebase";
 import { formatCurrency } from "../utils/format";
+import { generatePrintContent, printContent as printToPrinter, shouldAutoPrintOrders, getRestaurantPrinterSettings } from "../utils/printer";
 import type { Order, OrderStatus } from "../types/order";
 import { useRestaurantScope } from "../contexts/RestaurantContext";
 
@@ -103,89 +105,22 @@ function convertOrder(
   };
 }
 
-function printOrder(order: Order) {
-  const printWindow = window.open("", "_blank");
-  if (!printWindow) return;
-
-  const printContent = `
-    <html>
-    <head>
-      <title>Comanda #${order.id.slice(0, 6).toUpperCase()}</title>
-      <style>
-        body {
-          font-family: monospace;
-          font-size: 12px;
-          padding: 20px;
-          margin: 0;
-        }
-        .header {
-          text-align: center;
-          margin-bottom: 20px;
-          border-bottom: 2px dashed #000;
-          padding-bottom: 10px;
-        }
-        .order-info {
-          margin-bottom: 15px;
-        }
-        .items {
-          margin-bottom: 15px;
-        }
-        .item {
-          margin: 5px 0;
-        }
-        .total {
-          border-top: 2px dashed #000;
-          padding-top: 10px;
-          margin-top: 15px;
-          font-size: 14px;
-          font-weight: bold;
-        }
-        .footer {
-          margin-top: 20px;
-          text-align: center;
-          font-size: 10px;
-        }
-      </style>
-    </head>
-    <body>
-      <div class="header">
-        <h2>COMANDA</h2>
-        <p>#${order.id.slice(0, 6).toUpperCase()}</p>
-        <p>Mesa ${order.tableNumber}</p>
-        <p>${formatTime(order.createdAt)}</p>
-      </div>
-      
-      <div class="order-info">
-        <p><strong>Status:</strong> ${statusLabel(order.status)}</p>
-        <p><strong>Origem:</strong> ${order.source === "qrcode" ? "QR Code" : "Manual"}</p>
-      </div>
-      
-      <div class="items">
-        <h3>ITENS:</h3>
-        ${order.items.map(item => `
-          <div class="item">
-            ${item.quantity}x ${item.name} - ${formatCurrency(item.price)}
-            ${item.extras?.length ? `<br><small>+ ${item.extras.join(", ")}</small>` : ""}
-            ${item.notes ? `<br><small>Obs: ${item.notes}</small>` : ""}
-          </div>
-        `).join("")}
-      </div>
-      
-      <div class="total">
-        TOTAL: ${formatCurrency(order.total)}
-      </div>
-      
-      <div class="footer">
-        <p>Servia - Sistema de Gestão</p>
-        <p>${new Date().toLocaleString("pt-BR")}</p>
-      </div>
-    </body>
-    </html>
-  `;
-
-  printWindow.document.write(printContent);
-  printWindow.document.close();
-  printWindow.print();
+async function printOrder(order: Order) {
+  const settings = getRestaurantPrinterSettings();
+  const htmlContent = generatePrintContent(
+    "COMANDA",
+    order.id.slice(0, 8).toUpperCase(),
+    order.tableNumber,
+    order.items,
+    order.total,
+    {
+      "Status": statusLabel(order.status),
+      "Origem": order.source === "qrcode" ? "QR Code" : "Manual",
+      "Horário": formatTime(order.createdAt),
+    },
+    settings.paperWidth,
+  );
+  await printToPrinter(htmlContent, settings);
 }
 
 export default function KitchenModule() {
@@ -195,6 +130,7 @@ export default function KitchenModule() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [updatingId, setUpdatingId] = useState("");
+  const printedOrdersRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (!restaurantId) {
@@ -216,6 +152,16 @@ export default function KitchenModule() {
         setOrders(nextOrders);
         setLoading(false);
         setError("");
+
+        // Auto-print new orders if enabled
+        if (shouldAutoPrintOrders()) {
+          nextOrders.forEach((order) => {
+            if (order.status === "novo" && !printedOrdersRef.current.has(order.id)) {
+              printedOrdersRef.current.add(order.id);
+              void printOrder(order);
+            }
+          });
+        }
       },
       (snapshotError) => {
         console.error(
@@ -321,6 +267,13 @@ export default function KitchenModule() {
           </button>
         </div>
       </div>
+
+      {shouldAutoPrintOrders() && (
+        <div className="kitchen-print-info">
+          <Info size={16} />
+          <span>Impressão automática ativada: novos pedidos serão impressos automaticamente.</span>
+        </div>
+      )}
 
       <div className="orders-summary">
         <div className="orders-summary-card">
