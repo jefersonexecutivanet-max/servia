@@ -7,4 +7,6 @@ export type Table = {
   total: number;
   customer?: string;
   capacity: number;
+  x?: number;
+  y?: number;
 };

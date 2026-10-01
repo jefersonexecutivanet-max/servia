@@ -16,6 +16,7 @@ import {
   Plus,
   Pencil,
   Trash2,
+  Move,
 } from "lucide-react";
 
 import { formatCurrency } from "../utils/format";
@@ -162,6 +163,8 @@ export default function TablesModule() {
   const [copied, setCopied] =
     useState(false);
 
+  const [draggingTable, setDraggingTable] = useState<number | null>(null);
+
   useEffect(() => {
     if (!restaurantId) {
       return;
@@ -243,6 +246,47 @@ export default function TablesModule() {
 
   function selectTable(table: Table) {
     setSelectedTable(table);
+  }
+
+  function handleDragStart(_e: React.MouseEvent, tableNumber: number) {
+    setDraggingTable(tableNumber);
+  }
+
+  function handleDragMove(e: React.MouseEvent) {
+    if (draggingTable === null) return;
+    e.preventDefault();
+    
+    const floorMap = document.querySelector('.floor-map');
+    if (!floorMap) return;
+
+    const floorRect = floorMap.getBoundingClientRect();
+    const x = ((e.clientX - floorRect.left) / floorRect.width) * 100;
+    const y = ((e.clientY - floorRect.top) / floorRect.height) * 100;
+
+    // Clamp values to keep table within bounds
+    const clampedX = Math.max(0, Math.min(x, 85));
+    const clampedY = Math.max(0, Math.min(y, 85));
+
+    setTables(prev => prev.map(table => 
+      table.number === draggingTable 
+        ? { ...table, x: clampedX, y: clampedY }
+        : table
+    ));
+  }
+
+  function handleDragEnd() {
+    if (draggingTable === null) return;
+    
+    // Save the new position to Firebase
+    const table = tables.find(t => t.number === draggingTable);
+    if (table && table.x !== undefined && table.y !== undefined) {
+      void updateDoc(doc(db, "tables", `${restaurantId}_${table.number}`), {
+        x: table.x,
+        y: table.y,
+      });
+    }
+    
+    setDraggingTable(null);
   }
 
   function openQR(table: Table) {
@@ -645,10 +689,19 @@ export default function TablesModule() {
                 <i className="legend-dot reserved" />
                 Reservada
               </span>
+
+              <span style={{ display: 'flex', alignItems: 'center', gap: '6px', marginLeft: 'auto', color: '#71807b', fontSize: '10px' }}>
+                <Move size={14} />
+                Arraste para mover
+              </span>
             </div>
           </div>
 
-          <div className="floor-map">
+          <div className="floor-map"
+            onMouseMove={handleDragMove}
+            onMouseUp={handleDragEnd}
+            onMouseLeave={handleDragEnd}
+          >
             <div className="floor-label floor-label-top">
               ENTRADA / SALÃO PRINCIPAL
             </div>
@@ -657,31 +710,24 @@ export default function TablesModule() {
               <span>JANELAS</span>
             </div>
 
-            {tables.map((table, index) => {
-              const position =
-                tablePositions[index] ||
-                tablePositions[
-                  index %
-                    tablePositions.length
-                ];
+            {tables.map((table) => {
+              const position = table.x !== undefined && table.y !== undefined
+                ? { left: `${table.x}%`, top: `${table.y}%` }
+                : tablePositions[table.number - 1] || tablePositions[0];
 
               return (
                 <button
                   key={table.number}
                   type="button"
                   className={`floor-table table-${table.status} ${
-                    selectedTable?.number ===
-                    table.number
+                    selectedTable?.number === table.number
                       ? "selected"
                       : ""
-                  }`}
-                  style={{
-                    left: position.left,
-                    top: position.top,
-                  }}
-                  onClick={() =>
-                    selectTable(table)
-                  }
+                  } ${draggingTable === table.number ? "dragging" : ""}`}
+                  style={position}
+                  onMouseDown={(e) => handleDragStart(e, table.number)}
+                  onClick={() => selectTable(table)}
+                  title="Arraste para mover a mesa"
                 >
                   <div className="floor-table-number">
                     {table.number}
