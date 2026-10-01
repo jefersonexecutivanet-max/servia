@@ -1,0 +1,136 @@
+import { useCallback, useEffect, useState } from "react";
+import {
+  collection,
+  deleteDoc,
+  doc,
+  onSnapshot,
+  query,
+  setDoc,
+  where,
+  type DocumentData,
+} from "firebase/firestore";
+import { db } from "../firebase";
+import { DEFAULT_PRODUCTS } from "../data/menuCatalog";
+import type { Product, ProductExtra } from "../types/menu";
+
+function toExtras(value: unknown): ProductExtra[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((item, index) => {
+      if (!item || typeof item !== "object") {
+        return null;
+      }
+
+      const extra = item as Record<string, unknown>;
+
+      return {
+        id: String(extra.id || `extra-${index}`),
+        name: String(extra.name || ""),
+        price: Number(extra.price || 0),
+      };
+    })
+    .filter((item): item is ProductExtra => Boolean(item?.name));
+}
+
+function convertProduct(id: string, data: DocumentData): Product {
+  return {
+    id: String(data.id || id),
+    name: String(data.name || ""),
+    description: String(data.description || ""),
+    price: Number(data.price || 0),
+    category: String(data.category || "Pratos"),
+    imageUrl: String(data.imageUrl || ""),
+    available: data.available !== false,
+    featured: Boolean(data.featured),
+    extras: toExtras(data.extras),
+    notesEnabled: data.notesEnabled !== false,
+  };
+}
+
+function toFirestore(product: Product, restaurantId: string) {
+  return {
+    id: product.id,
+    restaurantId,
+    name: product.name,
+    description: product.description,
+    price: product.price,
+    category: product.category,
+    imageUrl: product.imageUrl,
+    available: product.available,
+    featured: product.featured,
+    extras: product.extras,
+    notesEnabled: product.notesEnabled,
+  };
+}
+
+export function useMenuCatalog(restaurantId: string) {
+  const [products, setProducts] = useState<Product[]>(DEFAULT_PRODUCTS);
+  const [fromRemote, setFromRemote] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    const menuQuery = restaurantId
+      ? query(collection(db, "menuItems"), where("restaurantId", "==", restaurantId))
+      : query(collection(db, "menuItems"));
+    const unsubscribe = onSnapshot(
+      menuQuery,
+      (snapshot) => {
+        if (snapshot.empty) {
+          setProducts(DEFAULT_PRODUCTS);
+          setFromRemote(false);
+        } else {
+          const nextProducts = snapshot.docs
+            .map((item) => convertProduct(item.id, item.data()))
+            .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+
+          setProducts(nextProducts);
+          setFromRemote(true);
+        }
+
+        setLoading(false);
+        setError("");
+      },
+      (snapshotError) => {
+        console.error("Erro ao carregar cardápio:", snapshotError);
+        setProducts(DEFAULT_PRODUCTS);
+        setFromRemote(false);
+        setLoading(false);
+        setError(
+          "Não foi possível sincronizar o cardápio. Exibindo o cardápio local.",
+        );
+      },
+    );
+
+    return () => unsubscribe();
+  }, [restaurantId]);
+
+  const saveProduct = useCallback(async (product: Product) => {
+    await setDoc(doc(db, "menuItems", `${restaurantId}_${product.id}`), toFirestore(product, restaurantId));
+  }, [restaurantId]);
+
+  const deleteProduct = useCallback(async (productId: string) => {
+    await deleteDoc(doc(db, "menuItems", `${restaurantId}_${productId}`));
+  }, [restaurantId]);
+
+  const publishCatalog = useCallback(async (items: Product[]) => {
+    await Promise.all(
+      items.map((product) =>
+        setDoc(doc(db, "menuItems", `${restaurantId}_${product.id}`), toFirestore(product, restaurantId)),
+      ),
+    );
+  }, [restaurantId]);
+
+  return {
+    products,
+    fromRemote,
+    loading,
+    error,
+    saveProduct,
+    deleteProduct,
+    publishCatalog,
+  };
+}

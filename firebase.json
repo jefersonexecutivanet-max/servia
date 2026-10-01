@@ -1,0 +1,14 @@
+{
+  "firestore": {
+    "rules": "firestore.rules"
+  },
+  "hosting": {
+    "public": "dist",
+    "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+    "rewrites": [
+      { "source": "/mesa/**", "destination": "/index.html" },
+      { "source": "/garcom/**", "destination": "/index.html" },
+      { "source": "**", "destination": "/index.html" }
+    ]
+  }
+}
