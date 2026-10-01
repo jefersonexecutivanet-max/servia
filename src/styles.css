@@ -122,6 +122,31 @@ input:focus-visible {
   font-size: 12px;
 }
 
+.restaurant-payment-gate {
+  text-align: center;
+}
+
+.restaurant-payment-gate .loading-logo {
+  margin-bottom: 16px;
+}
+
+.restaurant-payment-gate strong {
+  font-size: 18px;
+  color: #e8f1ed;
+}
+
+.restaurant-payment-gate span {
+  display: block;
+  margin: 4px 0;
+}
+
+.payment-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 20px;
+  justify-content: center;
+}
+
 @keyframes spin {
   to {
     transform: rotate(360deg);

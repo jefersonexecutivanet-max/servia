@@ -1948,7 +1948,12 @@ export default function App() {
         <span>Pagamento Pix pendente de confirmação do administrador.</span>
         <span>Valor para liberar/renovar: {formatCurrency(pendingPaymentAmount)}.</span>
         <strong>Chave Pix: finho60@hotmail.com</strong>
-        <button className="secondary-button" type="button" onClick={() => void signOut(auth)}>Sair</button>
+        <div className="payment-actions">
+          <button className="secondary-button" type="button" onClick={() => window.location.reload()}>
+            Verificar pagamento
+          </button>
+          <button className="secondary-button" type="button" onClick={() => void signOut(auth)}>Sair</button>
+        </div>
       </div>
     );
   }
