@@ -1900,7 +1900,7 @@ export default function App() {
       window.clearTimeout(expiryTimeout);
       unsubscribe();
     };
-  }, [access, user]);
+  }, [user]);
 
   /*
    * IMPORTANTE:
