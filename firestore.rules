@@ -127,6 +127,12 @@ service cloud.firestore {
       allow delete: if isOwner();
     }
 
+    match /tables/{tableId} {
+      allow read: if isOwner();
+      allow list: if isOwner();
+      allow create, update, delete: if isOwner();
+    }
+
     match /orders/{orderId} {
       allow create: if isOwner() || (request.auth == null && validCustomerOrder());
       allow read: if isOwner() || isWaiterFor(resource.data.waiterId);

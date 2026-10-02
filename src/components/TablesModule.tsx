@@ -379,7 +379,11 @@ export default function TablesModule() {
 
     try {
       const nextTable = { ...formTable, restaurantId };
-      await setDoc(doc(db, "tables", `${restaurantId}_${formTable.number}`), nextTable);
+      // Remover campos undefined antes de salvar no Firestore
+      const tableToSave = Object.fromEntries(
+        Object.entries(nextTable).filter(([_, value]) => value !== undefined)
+      );
+      await setDoc(doc(db, "tables", `${restaurantId}_${formTable.number}`), tableToSave);
       if (editingTable && editingTable.number !== formTable.number) {
         await deleteDoc(doc(db, "tables", `${restaurantId}_${editingTable.number}`));
       }
