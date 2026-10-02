@@ -1773,10 +1773,18 @@ export default function App() {
 
           startTransition(() => setLoading(true));
           try {
+            console.log("Verificando acesso:", {
+              currentUserUid: currentUser.uid,
+              ownerUid: ownerIdentity.uid,
+              currentUserEmail: currentUser.email,
+              ownerEmail: ownerIdentity.email,
+              isOwner: currentUser.uid === ownerIdentity.uid && currentUser.email === ownerIdentity.email,
+            });
             if (
               currentUser.uid === ownerIdentity.uid &&
               currentUser.email === ownerIdentity.email
             ) {
+              console.log("Usuário é owner, definindo access como admin");
               setAccess("admin");
             } else {
               const restaurantSnapshot = await getDoc(doc(db, "restaurants", currentUser.uid));
@@ -1865,6 +1873,11 @@ export default function App() {
 
   useEffect(() => {
     if (!user) {
+      return;
+    }
+
+    // Não verificar pagamento se for o admin
+    if (user.uid === ownerIdentity.uid && user.email === ownerIdentity.email) {
       return;
     }
 
