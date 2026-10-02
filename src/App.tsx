@@ -1773,18 +1773,10 @@ export default function App() {
 
           startTransition(() => setLoading(true));
           try {
-            console.log("Verificando acesso:", {
-              currentUserUid: currentUser.uid,
-              ownerUid: ownerIdentity.uid,
-              currentUserEmail: currentUser.email,
-              ownerEmail: ownerIdentity.email,
-              isOwner: currentUser.uid === ownerIdentity.uid && currentUser.email === ownerIdentity.email,
-            });
             if (
               currentUser.uid === ownerIdentity.uid &&
               currentUser.email === ownerIdentity.email
             ) {
-              console.log("Usuário é owner, definindo access como admin");
               setAccess("admin");
             } else {
               const restaurantSnapshot = await getDoc(doc(db, "restaurants", currentUser.uid));
@@ -1798,11 +1790,6 @@ export default function App() {
                 const monthlyPaidUntil = restaurantData.monthlyPaidUntil?.toDate?.() as Date | undefined;
                 setPendingPaymentAmount(monthlyPaidUntil ? 100 : 600);
                 const isPaid = restaurantData.status === "active" && monthlyPaidUntil && monthlyPaidUntil.getTime() > Date.now();
-                console.log("Login - Verificação inicial:", {
-                  status: restaurantData.status,
-                  monthlyPaidUntil,
-                  isPaid,
-                });
                 setAccess(isPaid ? "restaurant" : "restaurant-pending");
               } else if (!currentUser.emailVerified) {
                 setAccess("verification");
@@ -1888,15 +1875,6 @@ export default function App() {
       const status = data?.status;
       const now = Date.now();
       const valid = status === "active" && paidUntil && paidUntil.getTime() > now;
-      
-      console.log("Verificação de pagamento:", {
-        status,
-        paidUntil,
-        now,
-        valid,
-        paidUntilTime: paidUntil?.getTime(),
-        timeDiff: paidUntil ? paidUntil.getTime() - now : null,
-      });
 
       if (!valid) {
         setPendingPaymentAmount(paidUntil ? 100 : 600);
@@ -1906,7 +1884,6 @@ export default function App() {
 
       // Se estava pending e agora é válido, mudar para restaurant
       if (access === "restaurant-pending" && valid) {
-        console.log("Pagamento verificado, mudando para restaurant");
         setAccess("restaurant");
         // Forçar re-renderização imediata
         setTimeout(() => setAccess("restaurant"), 0);
@@ -1923,7 +1900,7 @@ export default function App() {
       window.clearTimeout(expiryTimeout);
       unsubscribe();
     };
-  }, [access, user, access]);
+  }, [access, user]);
 
   /*
    * IMPORTANTE:
@@ -1975,8 +1952,6 @@ export default function App() {
     return <WaiterPortal user={user} waiterId={waiterId} restaurantId={restaurantId} />;
   }
 
-  console.log("Renderizando App, access:", access, "user:", user?.email);
-
   if (access === "verification") {
     return <EmailVerificationPage user={user} />;
   }
@@ -1990,10 +1965,7 @@ export default function App() {
         <span>Valor para liberar/renovar: {formatCurrency(pendingPaymentAmount)}.</span>
         <strong>Chave Pix: finho60@hotmail.com</strong>
         <div className="payment-actions">
-          <button className="secondary-button" type="button" onClick={() => {
-            console.log("Botão verificar pagamento clicado, recarregando...");
-            window.location.reload();
-          }}>
+          <button className="secondary-button" type="button" onClick={() => window.location.reload()}>
             Verificar pagamento
           </button>
           <button className="secondary-button" type="button" onClick={() => void signOut(auth)}>Sair</button>
