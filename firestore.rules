@@ -185,7 +185,7 @@ service cloud.firestore {
     match /waiterTables/{tableNumber} {
       allow get: if true;
       allow list: if isOwner();
-      allow create, update: if isOwner() || (request.auth == null && validWaiterAssignment());
+      allow create, update: if isOwner() || validWaiterAssignment();
       allow delete: if isOwner();
     }
 
