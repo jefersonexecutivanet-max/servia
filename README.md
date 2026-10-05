@@ -49,6 +49,20 @@ O sistema possui configurações separadas para impressoras de cozinha e caixa:
 - **Pedidos**: Com a impressão automática ativada na cozinha, todos os pedidos feitos pelos clientes via QR Code serão impressos automaticamente
 - **Contas**: Quando o garçom fechar a mesa, a conta será impressa automaticamente na impressora configurada pelo usuário do caixa
 
+## Impressao automatica no computador da cozinha
+
+No computador da cozinha, abra **Configuracoes do Windows > Bluetooth e dispositivos > Impressoras e scanners**, escolha a impressora e selecione **Definir como padrao**. Em **Configuracoes > Configuracao de Impressoras**, habilite a impressora e a impressao automatica. O Servia envia as comandas para a impressora padrao escolhida pelo sistema.
+
+Para evitar que a janela de impressao interrompa cada pedido, use o Chrome ou Edge em modo de quiosque com impressao silenciosa. No computador da cozinha, baixe/clonar o projeto e execute no PowerShell, substituindo pelo endereco publico real do Servia:
+
+```powershell
+.\scripts\start-kitchen-printing.ps1 -Url "https://SEU-ENDERECO-DO-SERVIA"
+```
+
+Na primeira abertura, entre com o usuario do restaurante nesse navegador. O script cria um perfil separado do navegador para manter a sessao do computador da cozinha. Deixe esse navegador aberto durante o expediente. Para sair do modo quiosque, pressione **Alt+F4**.
+
+Antes de usar com clientes, envie um pedido de teste e confira se a impressora selecionada nas configuracoes do Windows e o tamanho do papel estao corretos.
+
 ## Acesso pela rede local
 
 Para abrir o Servia em celulares conectados ao mesmo Wi-Fi do computador que o hospeda, execute `npm run dev` ou `npm run preview` e use no computador o endereco `Network` mostrado pelo Vite, em vez de `localhost`. Os QR Codes usam o endereco atual do navegador; portanto, ao gerar/imprimir os QR Codes, o painel precisa estar aberto pelo endereco acessivel na rede local. O computador deve permanecer ligado e o firewall pode solicitar permissao para o servidor.

@@ -28,7 +28,7 @@ export function getRestaurantPrinterSettings(): RestaurantPrinterSettings {
       return {
         printerEnabled: parsed.printerEnabled ?? true,
         autoPrintOrders: parsed.autoPrintOrders ?? true,
-        printerType: parsed.printerType ?? "browser",
+        printerType: "browser",
         printerIp: parsed.printerIp ?? "",
         printerPort: parsed.printerPort ?? 9100,
         paperWidth: parsed.paperWidth ?? 80,
@@ -58,7 +58,7 @@ export function getUserPrinterSettings(): UserPrinterSettings {
       const parsed = JSON.parse(settingsStr);
       return {
         printerEnabled: parsed.printerEnabled ?? true,
-        printerType: parsed.printerType ?? "browser",
+        printerType: "browser",
         printerIp: parsed.printerIp ?? "",
         printerPort: parsed.printerPort ?? 9100,
         paperWidth: parsed.paperWidth ?? 80,
@@ -222,60 +222,63 @@ function formatCurrency(value: number): string {
 
 export async function printContent(htmlContent: string, settings?: RestaurantPrinterSettings | UserPrinterSettings): Promise<boolean> {
   const printerSettings = settings || getRestaurantPrinterSettings();
+  if (!printerSettings.printerEnabled) return false;
 
-  if (!printerSettings.printerEnabled) {
-    console.warn("Impressora desabilitada nas configurações");
-    return false;
-  }
-
+  let frame: HTMLIFrameElement | undefined;
   try {
-    switch (printerSettings.printerType) {
-      case "usb":
-        if ("usb" in navigator) {
-          const usb = (navigator as any).usb;
-          const devices = await usb.getDevices();
-          if (devices.length === 0) {
-            console.error("Nenhuma impressora USB encontrada");
-            return false;
-          }
-          // Implementar comunicação USB real aqui
-          console.log("Impressão USB:", devices);
-          return true;
-        }
-        console.error("WebUSB não suportado");
-        return false;
+    frame = document.createElement("iframe");
+    frame.setAttribute("aria-hidden", "true");
+    Object.assign(frame.style, {
+      position: "fixed",
+      right: "0",
+      bottom: "0",
+      width: "1px",
+      height: "1px",
+      border: "0",
+      opacity: "0",
+      pointerEvents: "none",
+    });
 
-      case "bluetooth":
-        if ("bluetooth" in navigator) {
-          // Implementar comunicação Bluetooth real aqui
-          console.log("Impressão Bluetooth");
-          return true;
-        }
-        console.error("Web Bluetooth não suportado");
-        return false;
+    return await new Promise<boolean>((resolve) => {
+      let settled = false;
+      let cleanupTimer = 0;
+      const cleanup = () => {
+        window.clearTimeout(cleanupTimer);
+        frame?.remove();
+      };
+      const finish = (success: boolean) => {
+        if (settled) return;
+        settled = true;
+        resolve(success);
+      };
 
-      case "network":
-        if (!printerSettings.printerIp) {
-          console.error("IP da impressora não configurado");
-          return false;
-        }
-        // Implementar comunicação de rede real aqui
-        console.log(`Impressão de rede: ${printerSettings.printerIp}:${printerSettings.printerPort}`);
-        return true;
-
-      case "browser":
-      default:
-        const printWindow = window.open("", "_blank");
+      frame!.onload = () => {
+        const printWindow = frame?.contentWindow;
         if (!printWindow) {
-          console.error("Não foi possível abrir janela de impressão");
-          return false;
+          cleanup();
+          finish(false);
+          return;
         }
-        printWindow.document.write(htmlContent);
-        printWindow.document.close();
-        printWindow.print();
-        return true;
-    }
+        printWindow.addEventListener("afterprint", cleanup, { once: true });
+        cleanupTimer = window.setTimeout(cleanup, 120_000);
+        window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
+          try {
+            printWindow.focus();
+            printWindow.print();
+            finish(true);
+          } catch (printError) {
+            console.error("Falha ao abrir a impressao do navegador:", printError);
+            cleanup();
+            finish(false);
+          }
+        }));
+      };
+
+      frame!.srcdoc = htmlContent;
+      document.body.appendChild(frame!);
+    });
   } catch (error) {
+    frame?.remove();
     console.error("Erro ao imprimir:", error);
     return false;
   }

@@ -929,7 +929,7 @@ export default function SettingsModule() {
                 <div className="settings-card">
                   <div className="settings-card-header">
                     <h3>Impressora da Cozinha</h3>
-                    <p>Imprime comandas automaticamente quando pedidos são recebidos</p>
+                    <p>Imprime comandas na impressora padrão do computador da cozinha</p>
                   </div>
 
                   <div className="settings-form">
@@ -961,16 +961,9 @@ export default function SettingsModule() {
                     </div>
 
                     <label className="form-field">
-                      <span>Tipo de conexão</span>
-                      <select
-                        value={restaurantPrinter.printerType}
-                        onChange={(e) => setRestaurantPrinter({ ...restaurantPrinter, printerType: e.target.value as "usb" | "bluetooth" | "network" | "browser" })}
-                        disabled={!restaurantPrinter.printerEnabled}
-                      >
-                        <option value="browser">Impressora do sistema (janela do navegador)</option>
-                        <option value="usb">USB (WebUSB - Chrome/Edge)</option>
-                        <option value="bluetooth">Bluetooth (Web Bluetooth - Chrome/Edge)</option>
-                        <option value="network">Rede (IP)</option>
+                      <span>Impressora</span>
+                      <select value={restaurantPrinter.printerType} disabled>
+                        <option value="browser">Impressora definida neste computador</option>
                       </select>
                     </label>
 
@@ -1011,18 +1004,7 @@ export default function SettingsModule() {
                       </select>
                     </label>
 
-                    <div className="settings-info">
-                      <Info size={16} />
-                      <span>
-                        {restaurantPrinter.printerType === "browser"
-                          ? "Usa a impressora padrão do sistema. Certifique-se de configurar o tamanho do papel nas preferências de impressão."
-                          : restaurantPrinter.printerType === "usb"
-                            ? "Requer impressora USB compatível com WebUSB. Disponível no Chrome e Edge."
-                            : restaurantPrinter.printerType === "bluetooth"
-                              ? "Requer impressora Bluetooth compatível. Disponível no Chrome e Edge."
-                              : "Impressora de rede via IP. Certifique-se de que a impressora está na mesma rede."}
-                      </span>
-                    </div>
+                    <div className="settings-info"><Info size={16} /><span>Usa a impressora definida como padrão neste computador. Para imprimir sem janela, inicie o Chrome ou Edge com --kiosk-printing.</span></div>
                   </div>
 
                   <div className="settings-card-actions">
@@ -1079,16 +1061,9 @@ export default function SettingsModule() {
                     </div>
 
                     <label className="form-field">
-                      <span>Tipo de conexão</span>
-                      <select
-                        value={userPrinter.printerType}
-                        onChange={(e) => setUserPrinter({ ...userPrinter, printerType: e.target.value as "usb" | "bluetooth" | "network" | "browser" })}
-                        disabled={!userPrinter.printerEnabled}
-                      >
-                        <option value="browser">Impressora do sistema (janela do navegador)</option>
-                        <option value="usb">USB (WebUSB - Chrome/Edge)</option>
-                        <option value="bluetooth">Bluetooth (Web Bluetooth - Chrome/Edge)</option>
-                        <option value="network">Rede (IP)</option>
+                      <span>Impressora</span>
+                      <select value={userPrinter.printerType} disabled>
+                        <option value="browser">Impressora definida neste computador</option>
                       </select>
                     </label>
 
