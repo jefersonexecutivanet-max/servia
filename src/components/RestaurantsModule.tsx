@@ -350,14 +350,9 @@ export default function RestaurantsModule({
                     Abrir painel
                   </button>
                 ) : (
-                  <>
-                    <button className="primary-button" type="button" disabled={busy} onClick={() => void confirmPayment(restaurant)}>
-                      <Check size={17} /> Confirmar Pix {restaurant.monthlyPaidUntil ? "mensal" : "e liberar"}
-                    </button>
-                    <button className="secondary-button" type="button" onClick={() => onOpenRestaurant(restaurant.id)}>
-                      Testar sistema
-                    </button>
-                  </>
+                  <button className="primary-button" type="button" disabled={busy} onClick={() => void confirmPayment(restaurant)}>
+                    <Check size={17} /> Confirmar Pix {restaurant.monthlyPaidUntil ? "mensal" : "e liberar"}
+                  </button>
                 )}
               </div>
             </article>
