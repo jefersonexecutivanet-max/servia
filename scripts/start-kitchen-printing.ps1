@@ -23,13 +23,14 @@ if (-not $browser) {
 }
 
 $profilePath = Join-Path $env:LOCALAPPDATA "ServiaKitchenProfile"
+$kitchenUrl = [Uri]::new($parsedUrl.GetLeftPart([UriPartial]::Authority) + "/cozinha")
 $browserArguments = @(
   "--kiosk",
   "--kiosk-printing",
   "--no-first-run",
   "--no-default-browser-check",
   "--user-data-dir=$profilePath",
-  "--app=$($parsedUrl.AbsoluteUri)"
+  "--app=$($kitchenUrl.AbsoluteUri)"
 )
 
 Start-Process -FilePath $browser -ArgumentList $browserArguments

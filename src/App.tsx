@@ -1513,7 +1513,13 @@ function AdminApplication({
   onSelectRestaurant: (restaurantId: string) => void;
 }) {
   const [active, setActive] =
-    useState<ModuleName>(systemAdmin ? "Restaurantes" : "Dashboard");
+    useState<ModuleName>(
+      systemAdmin
+        ? "Restaurantes"
+        : window.location.pathname.replace(/\/+$/, "").toLowerCase() === "/cozinha"
+          ? "Cozinha"
+          : "Dashboard",
+    );
 
   const [collapsed, setCollapsed] =
     useState(false);

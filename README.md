@@ -59,7 +59,7 @@ Para evitar que a janela de impressao interrompa cada pedido, use o Chrome ou Ed
 .\scripts\start-kitchen-printing.ps1 -Url "https://SEU-ENDERECO-DO-SERVIA"
 ```
 
-Na primeira abertura, entre com o usuario do restaurante nesse navegador. O script cria um perfil separado do navegador para manter a sessao do computador da cozinha. Deixe esse navegador aberto durante o expediente. Para sair do modo quiosque, pressione **Alt+F4**.
+Na primeira abertura, entre com o usuario do restaurante nesse navegador. O script cria um perfil separado do navegador para manter a sessao do computador da cozinha e abre diretamente o modulo **Cozinha**. Deixe essa tela aberta durante o expediente para receber e imprimir cada novo pedido imediatamente. Para sair do modo quiosque, pressione **Alt+F4**.
 
 Antes de usar com clientes, envie um pedido de teste e confira se a impressora selecionada nas configuracoes do Windows e o tamanho do papel estao corretos.
 
