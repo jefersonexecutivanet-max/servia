@@ -243,14 +243,14 @@ service cloud.firestore {
 
     match /tableCalls/{callId} {
       allow read: if isOwner() || isWaiterFor(resource.data.waiterId);
-      allow create: if isOwner() || (request.auth == null && validServiceRequest());
+      allow create: if isOwner() || validServiceRequest();
       allow update: if isOwner() || validTableCallUpdate();
       allow delete: if isOwner();
     }
 
     match /billRequests/{requestId} {
       allow read: if isOwner() || isWaiterFor(resource.data.waiterId);
-      allow create: if isOwner() || (request.auth == null && validServiceRequest());
+      allow create: if isOwner() || validServiceRequest();
       allow update: if isOwner() || validTableCallUpdate();
       allow delete: if isOwner();
     }
