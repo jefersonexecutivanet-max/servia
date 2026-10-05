@@ -29,6 +29,19 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/restaurantStaff/$(request.auth.uid)).data.restaurantId == restaurantId;
     }
 
+    function validOwnTeamAccess(staffUid) {
+      let waiterPath = /databases/$(database)/documents/waiters/$(request.resource.data.waiterId);
+      return signedIn()
+        && staffUid == request.auth.uid
+        && request.resource.data.keys().hasAll(['restaurantId', 'waiterId', 'active'])
+        && request.resource.data.keys().hasOnly(['restaurantId', 'waiterId', 'active'])
+        && request.resource.data.active == true
+        && exists(waiterPath)
+        && get(waiterPath).data.uid == request.auth.uid
+        && get(waiterPath).data.active == true
+        && get(waiterPath).data.restaurantId == request.resource.data.restaurantId;
+    }
+
     function canManageRestaurant(restaurantId) {
       return isOwner() || isActiveRestaurantOwner(restaurantId);
     }
@@ -192,11 +205,13 @@ service cloud.firestore {
     match /restaurantStaff/{staffUid} {
       allow get: if isOwner() || (signedIn() && staffUid == request.auth.uid);
       allow list: if isOwner();
-      allow create: if isOwner() || canManageRestaurant(request.resource.data.restaurantId);
+      allow create: if isOwner()
+        || canManageRestaurant(request.resource.data.restaurantId)
+        || validOwnTeamAccess(staffUid);
       allow update: if isOwner() || (
         canManageRestaurant(resource.data.restaurantId)
         && request.resource.data.restaurantId == resource.data.restaurantId
-      );
+      ) || validOwnTeamAccess(staffUid);
       allow delete: if isOwner() || canManageRestaurant(resource.data.restaurantId);
     }
 

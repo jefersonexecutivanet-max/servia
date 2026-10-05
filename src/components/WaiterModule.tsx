@@ -11,9 +11,11 @@ import {
 import {
   collection,
   doc,
+  getDoc,
   onSnapshot,
   query,
   serverTimestamp,
+  setDoc,
   updateDoc,
   where,
   type DocumentData,
@@ -125,6 +127,7 @@ export default function WaiterModule({
   const [error, setError] = useState("");
   const [updatingId, setUpdatingId] = useState("");
   const [orders, setOrders] = useState<TableOrder[]>([]);
+  const [ordersAccessReady, setOrdersAccessReady] = useState(false);
   const seenRequestsRef = useRef(new Set<string>());
   const loadedRequestCollectionsRef = useRef(new Set<RequestCollection>());
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -187,7 +190,46 @@ export default function WaiterModule({
   }
 
   useEffect(() => {
-    if (!restaurantId) {
+    if (!restaurantId || !waiterId) {
+      setOrdersAccessReady(true);
+      return;
+    }
+
+    let cancelled = false;
+    setOrdersAccessReady(false);
+    async function registerTeamAccess() {
+      const waiterSnapshot = await getDoc(doc(db, "waiters", waiterId));
+      const waiterData = waiterSnapshot.data();
+      if (
+        !waiterSnapshot.exists()
+        || waiterData?.uid !== user.uid
+        || waiterData?.restaurantId !== restaurantId
+        || waiterData?.active !== true
+      ) {
+        throw new Error("A conta da equipe nÃ£o estÃ¡ ativa para este restaurante.");
+      }
+      await setDoc(doc(db, "restaurantStaff", user.uid), {
+        restaurantId,
+        waiterId,
+        active: true,
+      });
+      if (!cancelled) setOrdersAccessReady(true);
+    }
+
+    void registerTeamAccess().catch((accessError) => {
+      console.error("Erro ao validar acesso Ã s comandas:", accessError);
+      if (!cancelled) {
+        setError("NÃ£o foi possÃ­vel validar o acesso da equipe Ã s comandas.");
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [restaurantId, waiterId, user.uid]);
+
+  useEffect(() => {
+    if (!restaurantId || (waiterId && !ordersAccessReady)) {
       return;
     }
 
@@ -300,7 +342,7 @@ export default function WaiterModule({
       unsubscribeBills();
       unsubscribeOrders();
     };
-  }, [restaurantId, waiterId, user.uid]);
+  }, [restaurantId, waiterId, user.uid, ordersAccessReady]);
 
   const requests = useMemo(
     () =>
