@@ -32,6 +32,7 @@ import {
   signInWithEmailAndPassword,
   signOut,
   sendEmailVerification,
+  updatePassword,
   updateProfile,
   reload,
   sendPasswordResetEmail,
@@ -125,17 +126,15 @@ const ownerIdentity = {
    LOGIN
 ========================================================= */
 
-function LoginScreen({ waiterMode = false }: { waiterMode?: boolean } = {}) {
-  const [mode, setMode] = useState<"login" | "register" | "reset">(
-    waiterMode ? "register" : "login",
-  );
+function LoginScreen({ waiterMode = false, waiterEmail = "" }: { waiterMode?: boolean; waiterEmail?: string } = {}) {
+  const [mode, setMode] = useState<"login" | "register" | "reset">("login");
 
   const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState(waiterEmail);
   const [password, setPassword] = useState("");
 
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState(waiterMode && !waiterEmail ? "Este QR precisa ser atualizado pelo gestor para incluir o e-mail de acesso." : "");
   const [notice, setNotice] = useState("");
 
   async function handlePasswordReset() {
@@ -170,6 +169,11 @@ function LoginScreen({ waiterMode = false }: { waiterMode?: boolean } = {}) {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
+    if (waiterMode && !email.trim()) {
+      setError("Este QR precisa ser atualizado pelo gestor para incluir o e-mail de acesso.");
+      return;
+    }
 
     setError("");
     setNotice("");
@@ -218,7 +222,7 @@ function LoginScreen({ waiterMode = false }: { waiterMode?: boolean } = {}) {
         code === "auth/wrong-password" ||
         code === "auth/user-not-found"
       ) {
-        setError("E-mail ou senha incorretos.");
+        setError(waiterMode ? "Senha temporária ou atual incorreta." : "E-mail ou senha incorretos.");
       } else if (code === "auth/email-already-in-use") {
         if (waiterMode && mode === "register") {
           setMode("login");
@@ -276,15 +280,15 @@ function LoginScreen({ waiterMode = false }: { waiterMode?: boolean } = {}) {
             <div>
               <h1>
                 {waiterMode
-                  ? mode === "login" ? "Entrar na equipe" : "Crie sua senha da equipe"
+                  ? mode === "reset" ? "Recuperar senha" : "Acesso da equipe"
                   : mode === "login" ? "Bem-vindo de volta" : "Criar conta"}
               </h1>
 
               <p>
                 {waiterMode
-                  ? mode === "login"
-                    ? "Entre com o e-mail cadastrado pelo restaurante e a senha que você criou."
-                    : "Digite o e-mail cadastrado pelo restaurante e escolha uma senha para acessar o sistema da equipe."
+                  ? mode === "reset"
+                    ? "Enviaremos um link de recuperação para o e-mail cadastrado pelo gestor."
+                    : "Entre com a senha temporária fornecida pelo gestor. No primeiro acesso, você vai criar sua senha pessoal."
                   : mode === "login"
                     ? "Entre para administrar seu restaurante."
                     : "Comece a gerenciar seu restaurante com o Servia."}
@@ -293,7 +297,7 @@ function LoginScreen({ waiterMode = false }: { waiterMode?: boolean } = {}) {
           </div>
 
           <form onSubmit={handleSubmit}>
-            {mode === "register" && (
+            {mode === "register" && !waiterMode && (
               <div className="form-field">
                 <label>Nome</label>
 
@@ -313,7 +317,7 @@ function LoginScreen({ waiterMode = false }: { waiterMode?: boolean } = {}) {
               </div>
             )}
 
-            <div className="form-field">
+            {!waiterMode && <div className="form-field">
               <label>E-mail</label>
 
               <div className="input-wrapper">
@@ -329,17 +333,26 @@ function LoginScreen({ waiterMode = false }: { waiterMode?: boolean } = {}) {
                   required
                 />
               </div>
-            </div>
+            </div>}
+
+            {waiterMode && (
+              <div className="form-field">
+                <label>Conta cadastrada pelo gestor</label>
+                <div className="input-wrapper">
+                  <input type="email" value={email} readOnly aria-label="E-mail da conta cadastrada" />
+                </div>
+              </div>
+            )}
 
             <div className="form-field">
-              <label>Senha</label>
+              <label>{waiterMode ? "Senha temporária ou atual" : "Senha"}</label>
 
               <div className="input-wrapper">
                 <span className="password-dot">•••</span>
 
                 <input
                   type="password"
-                  placeholder={waiterMode && mode === "register" ? "Crie uma senha (mínimo 6 caracteres)" : "Sua senha"}
+                  placeholder={waiterMode ? "Digite a senha fornecida pelo gestor" : "Sua senha"}
                   value={password}
                   onChange={(event) =>
                     setPassword(event.target.value)
@@ -381,7 +394,7 @@ function LoginScreen({ waiterMode = false }: { waiterMode?: boolean } = {}) {
               <h3>Recuperar Senha</h3>
               <p>Digite seu e-mail para receber um link de redefinição de senha.</p>
               
-              <div className="form-field">
+              {!waiterMode && <div className="form-field">
                 <label>E-mail</label>
                 <div className="input-wrapper">
                   <span className="input-at">@</span>
@@ -393,7 +406,7 @@ function LoginScreen({ waiterMode = false }: { waiterMode?: boolean } = {}) {
                     required
                   />
                 </div>
-              </div>
+              </div>}
 
               <button
                 type="button"
@@ -418,11 +431,11 @@ function LoginScreen({ waiterMode = false }: { waiterMode?: boolean } = {}) {
             </div>
           )}
 
-          {mode !== "reset" && (
+          {(mode !== "reset" || waiterMode) && (
             <div className="login-switch">
               <span>
                 {mode === "login"
-                  ? (waiterMode ? "Primeiro acesso à equipe?" : "Esqueceu sua senha?")
+                  ? (waiterMode ? "Problemas para entrar?" : "Esqueceu sua senha?")
                   : "Já possui uma conta?"}
               </span>
 
@@ -440,22 +453,6 @@ function LoginScreen({ waiterMode = false }: { waiterMode?: boolean } = {}) {
               >
                 {mode === "login" ? "Recuperar senha" : "Fazer login"}
               </button>
-
-              {mode === "login" && waiterMode && (
-                <>
-                  <span>·</span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setMode("register");
-                      setError("");
-                      setNotice("");
-                    }}
-                  >
-                    Criar conta
-                  </button>
-                </>
-              )}
             </div>
           )}
         </div>
@@ -1751,6 +1748,76 @@ function RestrictedAccessPage({ message }: { message: string }) {
   );
 }
 
+function WaiterPasswordChange({ user, waiterId, onComplete }: {
+  user: User;
+  waiterId: string;
+  onComplete: () => void;
+}) {
+  const [password, setPassword] = useState("");
+  const [confirmation, setConfirmation] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError("");
+    if (password.length < 6) {
+      setError("A nova senha precisa ter pelo menos 6 caracteres.");
+      return;
+    }
+    if (password !== confirmation) {
+      setError("As senhas não são iguais.");
+      return;
+    }
+
+    setBusy(true);
+    try {
+      await updatePassword(user, password);
+      await updateDoc(doc(db, "waiters", waiterId), { mustChangePassword: false });
+      onComplete();
+    } catch (changeError) {
+      console.error("Não foi possível alterar a senha temporária:", changeError);
+      setError("Não foi possível atualizar sua senha. Entre novamente com a senha temporária e tente outra vez.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="login-page">
+      <div className="login-container">
+        <div className="login-card">
+          <div className="login-card-header">
+            <div className="login-card-icon"><UserRound size={22} /></div>
+            <div>
+              <h1>Crie sua senha pessoal</h1>
+              <p>A senha temporária do gestor só pode ser usada neste primeiro acesso.</p>
+            </div>
+          </div>
+          <form onSubmit={handleSubmit}>
+            <div className="form-field">
+              <label>Nova senha</label>
+              <div className="input-wrapper">
+                <input type="password" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} required minLength={6} placeholder="Mínimo de 6 caracteres" />
+              </div>
+            </div>
+            <div className="form-field">
+              <label>Confirme a nova senha</label>
+              <div className="input-wrapper">
+                <input type="password" autoComplete="new-password" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} required minLength={6} placeholder="Digite a senha novamente" />
+              </div>
+            </div>
+            {error && <div className="login-error" role="alert">{error}</div>}
+            <button className="login-submit" type="submit" disabled={busy}>
+              {busy ? "Atualizando..." : "Salvar senha e abrir sistema"}
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* =========================================================
    APP PRINCIPAL
 ========================================================= */
@@ -1759,12 +1826,13 @@ export default function App() {
   const waiterRouteMatch = window.location.pathname.match(/^\/garcom\/([^/]+)\/([^/]+)\/?$/);
   const waiterRestaurantRouteId = waiterRouteMatch?.[1] || "";
   const waiterRouteId = waiterRouteMatch?.[2] || "";
+  const waiterEmail = new URLSearchParams(window.location.search).get("email") || "";
   const [user, setUser] =
     useState<User | null>(null);
 
   const [loading, setLoading] =
     useState(true);
-  const [access, setAccess] = useState<"admin" | "restaurant" | "restaurant-pending" | "waiter" | "verification" | "blocked" | "signed-out">("signed-out");
+  const [access, setAccess] = useState<"admin" | "restaurant" | "restaurant-pending" | "waiter" | "waiter-password-change" | "verification" | "blocked" | "signed-out">("signed-out");
   const [waiterId, setWaiterId] = useState("");
   const [restaurantId, setRestaurantId] = useState(() => localStorage.getItem("servia-active-restaurant") || "");
   const [pendingRestaurantName, setPendingRestaurantName] = useState("");
@@ -1810,7 +1878,7 @@ export default function App() {
                 setPendingPaymentAmount(monthlyPaidUntil ? 100 : 600);
                 const isPaid = restaurantData.status === "active" && monthlyPaidUntil && monthlyPaidUntil.getTime() > Date.now();
                 setAccess(isPaid ? "restaurant" : "restaurant-pending");
-              } else if (!currentUser.emailVerified) {
+              } else if (!waiterRouteId && !currentUser.emailVerified) {
                 setAccess("verification");
               } else {
                 let memberSnapshot;
@@ -1845,7 +1913,7 @@ export default function App() {
                 ) {
                   setWaiterId(matchedWaiterId);
                   setRestaurantId(String(memberData.restaurantId || ""));
-                  setAccess("waiter");
+                  setAccess(memberData.mustChangePassword === true ? "waiter-password-change" : "waiter");
                 } else {
                   setWaiterId("");
                   setAccessMessage("Não encontramos um cadastro ativo para esta conta. Abra o QR individual enviado pelo administrador.");
@@ -1964,7 +2032,11 @@ export default function App() {
   }
 
   if (!user) {
-    return <LoginScreen waiterMode={Boolean(waiterRouteId)} />;
+    return <LoginScreen waiterMode={Boolean(waiterRouteId)} waiterEmail={waiterEmail} />;
+  }
+
+  if (access === "waiter-password-change") {
+    return <WaiterPasswordChange user={user} waiterId={waiterId} onComplete={() => setAccess("waiter")} />;
   }
 
   if (access === "waiter") {

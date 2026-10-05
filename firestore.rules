@@ -37,7 +37,6 @@ service cloud.firestore {
     function isWaiterFor(waiterId) {
       let waiterPath = /databases/$(database)/documents/waiters/$(waiterId);
       return signedIn()
-        && request.auth.token.email_verified == true
         && waiterId is string
         && exists(waiterPath)
         && get(waiterPath).data.active == true
@@ -53,6 +52,16 @@ service cloud.firestore {
         && request.resource.data.uid == request.auth.uid
         && request.resource.data.email == request.auth.token.email
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['uid', 'email']);
+    }
+
+    function validWaiterPasswordChange() {
+      return signedIn()
+        && resource.data.active == true
+        && resource.data.uid == request.auth.uid
+        && resource.data.email == request.auth.token.email
+        && resource.data.mustChangePassword == true
+        && request.resource.data.mustChangePassword == false
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['mustChangePassword']);
     }
 
     function validCustomerOrder() {
@@ -148,7 +157,12 @@ service cloud.firestore {
 
     match /waiterDirectory/{waiterId} {
       allow get, list: if isOwner() || resource.data.active == true;
-      allow write: if isOwner();
+      allow create: if isOwner() || canManageRestaurant(request.resource.data.restaurantId);
+      allow update: if isOwner() || (
+        canManageRestaurant(resource.data.restaurantId)
+        && request.resource.data.restaurantId == resource.data.restaurantId
+      );
+      allow delete: if isOwner() || canManageRestaurant(resource.data.restaurantId);
     }
 
     match /waiters/{waiterId} {
@@ -159,8 +173,12 @@ service cloud.firestore {
         && resource.data.active == true
         && resource.data.uid == request.auth.uid
       );
-      allow create, delete: if isOwner();
-      allow update: if isOwner() || validWaiterClaim();
+      allow create: if isOwner() || canManageRestaurant(request.resource.data.restaurantId);
+      allow delete: if isOwner() || canManageRestaurant(resource.data.restaurantId);
+      allow update: if isOwner() || (
+        canManageRestaurant(resource.data.restaurantId)
+        && request.resource.data.restaurantId == resource.data.restaurantId
+      ) || validWaiterClaim() || validWaiterPasswordChange();
     }
 
     match /waiterTables/{tableNumber} {
