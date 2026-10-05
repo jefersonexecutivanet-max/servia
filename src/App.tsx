@@ -1877,7 +1877,11 @@ export default function App() {
                 const monthlyPaidUntil = restaurantData.monthlyPaidUntil?.toDate?.() as Date | undefined;
                 setPendingPaymentAmount(monthlyPaidUntil ? 100 : 600);
                 const isPaid = restaurantData.status === "active" && monthlyPaidUntil && monthlyPaidUntil.getTime() > Date.now();
-                setAccess(isPaid ? "restaurant" : "restaurant-pending");
+                setAccess((currentAccess) =>
+                  currentAccess === "restaurant" || isPaid
+                    ? "restaurant"
+                    : "restaurant-pending",
+                );
               } else if (!waiterRouteId && !currentUser.emailVerified) {
                 setAccess("verification");
               } else {
@@ -1958,6 +1962,9 @@ export default function App() {
     let expiryTimeout = 0;
     const unsubscribe = onSnapshot(doc(db, "restaurants", user.uid), (snapshot) => {
       const data = snapshot.data();
+      if (!snapshot.exists() || data?.ownerEmail !== user.email) {
+        return;
+      }
       const paidUntil = data?.monthlyPaidUntil?.toDate?.() as Date | undefined;
       const status = data?.status;
       const now = Date.now();
@@ -1970,7 +1977,7 @@ export default function App() {
       }
 
       // Se estava pending e agora é válido, mudar para restaurant
-      if (access === "restaurant-pending" && valid) {
+      if (valid) {
         setAccess("restaurant");
         // Forçar re-renderização imediata
         setTimeout(() => setAccess("restaurant"), 0);
