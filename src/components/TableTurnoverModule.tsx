@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import {
   Timer,
   AlertTriangle,
@@ -18,6 +18,18 @@ import {
 } from "lucide-react";
 import { formatCurrency } from "../utils/format";
 import type { TableStatus } from "../types/table";
+import { collection, onSnapshot, query, where } from "firebase/firestore";
+import { db } from "../firebase";
+import { useRestaurantScope } from "../contexts/RestaurantContext";
+
+type TableCall = {
+  id: string;
+  tableNumber: number;
+  type: "waiter" | "bill";
+  status: string;
+  waiterName?: string;
+  createdAt?: Date;
+};
 
 type TableMetrics = {
   number: number;
@@ -31,6 +43,25 @@ type TableMetrics = {
   lastRequestType?: "bill" | "waiter" | "drink" | "dessert";
   turnoverRate: number; // giros por hora
 };
+
+function formatRequestTime(date?: Date) {
+  if (!date) {
+    return "Agora";
+  }
+
+  const minutes = Math.max(0, Math.floor((Date.now() - date.getTime()) / 60000));
+  if (minutes < 1) {
+    return "Agora";
+  }
+  if (minutes < 60) {
+    return `há ${minutes} min`;
+  }
+
+  return date.toLocaleTimeString("pt-BR", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
 
 function formatDuration(minutes: number): string {
   if (minutes < 60) {
@@ -150,6 +181,66 @@ export default function TableTurnoverModule() {
   const [tables, setTables] = useState<TableMetrics[]>(mockTables);
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [showAlerts, setShowAlerts] = useState(true);
+  const [tableCalls, setTableCalls] = useState<TableCall[]>([]);
+  const previousCallCountRef = useRef(0);
+  const { restaurantId } = useRestaurantScope();
+
+  // Função para tocar som de notificação
+  const playNotificationSound = () => {
+    try {
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const oscillator = audioContext.createOscillator();
+      const gainNode = audioContext.createGain();
+      
+      oscillator.connect(gainNode);
+      gainNode.connect(audioContext.destination);
+      
+      oscillator.frequency.value = 600;
+      oscillator.type = 'sine';
+      gainNode.gain.value = 0.3;
+      
+      oscillator.start();
+      oscillator.stop(audioContext.currentTime + 0.3);
+    } catch (error) {
+      console.error("Erro ao tocar som:", error);
+    }
+  };
+
+  // Carregar chamadas de garçom para notificações
+  useEffect(() => {
+    if (!restaurantId) {
+      return;
+    }
+
+    const unsubscribe = onSnapshot(
+      query(collection(db, "tableCalls"), where("restaurantId", "==", restaurantId)),
+      (snapshot) => {
+        const calls = snapshot.docs.map(doc => ({
+          id: doc.id,
+          tableNumber: Number(doc.data().tableNumber || 0),
+          type: doc.data().type || "waiter",
+          status: doc.data().status || "pending",
+          waiterName: doc.data().waiterName,
+          createdAt: doc.data().createdAt?.toDate(),
+        }));
+        
+        const pendingCalls = calls.filter(c => c.status === "pending");
+        
+        // Tocar som se houver novos chamados
+        if (pendingCalls.length > previousCallCountRef.current && previousCallCountRef.current > 0) {
+          playNotificationSound();
+        }
+        
+        setTableCalls(calls);
+        previousCallCountRef.current = pendingCalls.length;
+      },
+      (error) => {
+        console.error("Erro ao carregar chamadas:", error);
+      }
+    );
+
+    return () => unsubscribe();
+  }, [restaurantId]);
 
   // Simular atualização em tempo real
   useEffect(() => {
@@ -371,6 +462,36 @@ export default function TableTurnoverModule() {
           </div>
         </div>
       </div>
+
+      {/* Chamadas de Garçom - Notificações para o Gerente */}
+      {showAlerts && tableCalls.filter(c => c.status === "pending").length > 0 && (
+        <div className="turnover-alerts">
+          <div className="alert-header">
+            <Bell size={20} />
+            <strong>Chamadas de Garçom Pendentes</strong>
+          </div>
+          <div className="alert-list">
+            {tableCalls.filter(c => c.status === "pending").map(call => (
+              <div key={call.id} className="alert-item">
+                <div className="alert-table">
+                  <strong>Mesa {call.tableNumber}</strong>
+                </div>
+                <div className="alert-type">
+                  {call.type === "waiter" ? "Chamou garçom" : "Pediu conta"}
+                </div>
+                {call.waiterName && (
+                  <div className="alert-waiter">
+                    {call.waiterName}
+                  </div>
+                )}
+                <div className="alert-time">
+                  {call.createdAt ? formatRequestTime(call.createdAt) : "Agora"}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Alertas ativos */}
       {showAlerts && (metrics.waitingCount > 0 || metrics.longOccupancyCount > 0) && (

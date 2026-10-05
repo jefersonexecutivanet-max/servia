@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ElementType } from "react";
+import { useEffect, useMemo, useState, useRef, type ElementType } from "react";
 import {
   BellRing,
   Check,
@@ -120,6 +120,29 @@ export default function WaiterModule({
   const [error, setError] = useState("");
   const [updatingId, setUpdatingId] = useState("");
   const [orders, setOrders] = useState<TableOrder[]>([]);
+  const previousCallCountRef = useRef(0);
+  const previousBillCountRef = useRef(0);
+
+  // Função para tocar som de notificação
+  const playNotificationSound = () => {
+    try {
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const oscillator = audioContext.createOscillator();
+      const gainNode = audioContext.createGain();
+      
+      oscillator.connect(gainNode);
+      gainNode.connect(audioContext.destination);
+      
+      oscillator.frequency.value = 800;
+      oscillator.type = 'sine';
+      gainNode.gain.value = 0.3;
+      
+      oscillator.start();
+      oscillator.stop(audioContext.currentTime + 0.2);
+    } catch (error) {
+      console.error("Erro ao tocar som:", error);
+    }
+  };
 
   useEffect(() => {
     if (!restaurantId) {
@@ -152,9 +175,16 @@ export default function WaiterModule({
     const unsubscribeCalls = onSnapshot(
       requestsQuery("tableCalls"),
       (snapshot) => {
-        setTableCalls(
-          snapshot.docs.map((item) => convertRequest(item, "tableCalls")),
-        );
+        const newCalls = snapshot.docs.map((item) => convertRequest(item, "tableCalls"));
+        const openCalls = newCalls.filter(c => c.status === "pending");
+        
+        // Tocar som se houver novos chamados
+        if (openCalls.length > previousCallCountRef.current && previousCallCountRef.current > 0) {
+          playNotificationSound();
+        }
+        
+        setTableCalls(newCalls);
+        previousCallCountRef.current = openCalls.length;
         markLoaded("tableCalls");
         setError("");
       },
@@ -168,9 +198,16 @@ export default function WaiterModule({
     const unsubscribeBills = onSnapshot(
       requestsQuery("billRequests"),
       (snapshot) => {
-        setBillRequests(
-          snapshot.docs.map((item) => convertRequest(item, "billRequests")),
-        );
+        const newBills = snapshot.docs.map((item) => convertRequest(item, "billRequests"));
+        const openBills = newBills.filter(b => b.status === "pending");
+        
+        // Tocar som se houver novos pedidos de conta
+        if (openBills.length > previousBillCountRef.current && previousBillCountRef.current > 0) {
+          playNotificationSound();
+        }
+        
+        setBillRequests(newBills);
+        previousBillCountRef.current = openBills.length;
         markLoaded("billRequests");
         setError("");
       },
