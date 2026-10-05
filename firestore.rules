@@ -167,12 +167,13 @@ service cloud.firestore {
 
     match /waiters/{waiterId} {
       allow get: if isOwner() || isWaiterFor(waiterId);
-      allow list: if isOwner() || (
-        signedIn()
-        && request.auth.token.email_verified == true
-        && resource.data.active == true
-        && resource.data.uid == request.auth.uid
-      );
+      allow list: if isOwner()
+        || canManageRestaurant(resource.data.restaurantId)
+        || (
+          signedIn()
+          && resource.data.active == true
+          && resource.data.uid == request.auth.uid
+        );
       allow create: if isOwner() || canManageRestaurant(request.resource.data.restaurantId);
       allow delete: if isOwner() || canManageRestaurant(resource.data.restaurantId);
       allow update: if isOwner() || (
