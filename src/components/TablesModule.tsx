@@ -23,7 +23,7 @@ import {
 
 import { formatCurrency } from "../utils/format";
 import { generatePrintContent, printContent as printToPrinter, getUserPrinterSettings } from "../utils/printer";
-import { collection, deleteDoc, deleteField, doc, onSnapshot, query, setDoc, updateDoc, where, getDocs, serverTimestamp, writeBatch } from "firebase/firestore";
+import { collection, deleteDoc, deleteField, doc, getDoc, onSnapshot, query, setDoc, updateDoc, where, getDocs, serverTimestamp, writeBatch } from "firebase/firestore";
 import { db } from "../firebase";
 import { useRestaurantScope } from "../contexts/RestaurantContext";
 import type { Table, TableStatus } from "../types/table";
@@ -488,6 +488,8 @@ export default function TablesModule() {
       }
 
       const tableRef = doc(db, "tables", `${restaurantId}_${selectedTable.number}`);
+      const assignmentRef = doc(db, "waiterTables", `${restaurantId}_${selectedTable.number}`);
+      const assignmentSnapshot = await getDoc(assignmentRef);
       const paymentRef = doc(collection(db, "payments"));
       const batch = writeBatch(db);
       batch.set(paymentRef, {
@@ -513,6 +515,7 @@ export default function TablesModule() {
         total: 0,
         customer: deleteField(),
       });
+      if (assignmentSnapshot.exists()) batch.delete(assignmentRef);
       await batch.commit();
       closeAllModals();
       setSelectedTable(null);

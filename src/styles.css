@@ -4763,6 +4763,135 @@ input:focus-visible {
   background: var(--panel);
 }
 
+.waiter-floor-map-panel {
+  margin-bottom: 22px;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--panel);
+}
+
+.waiter-floor-map {
+  position: relative;
+  min-height: 340px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+    #0b1411;
+  background-size: 28px 28px;
+}
+
+.waiter-floor-entrance {
+  position: absolute;
+  top: 9px;
+  left: 50%;
+  transform: translateX(-50%);
+  color: #64736d;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+}
+
+.waiter-map-table {
+  position: absolute;
+  display: grid;
+  align-content: center;
+  justify-items: start;
+  gap: 3px;
+  width: 112px;
+  min-height: 66px;
+  padding: 9px 9px 9px 38px;
+  transform: translate(-50%, -50%);
+  border: 1px solid #2a3934;
+  border-radius: 13px;
+  background: #111b19;
+  color: #eef6f3;
+}
+
+.waiter-map-table > span {
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  transform: translateY(-50%);
+  border-radius: 8px;
+  background: #7fd56b;
+  color: #08100d;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.waiter-map-table strong {
+  font-size: 11px;
+}
+
+.waiter-map-table small {
+  color: #9aa8a2;
+  font-size: 9px;
+}
+
+.waiter-map-ocupada {
+  border-color: #634d35;
+}
+
+.waiter-map-ocupada > span {
+  background: var(--orange);
+}
+
+.waiter-map-reservada > span {
+  background: var(--blue);
+}
+
+.waiter-map-table.assigned-to-me {
+  z-index: 1;
+  border-color: var(--green);
+  box-shadow: 0 0 0 2px rgba(165, 229, 107, 0.2), 0 8px 22px rgba(0, 0, 0, 0.3);
+}
+
+.waiter-map-table.assigned-to-me > span {
+  background: var(--green);
+}
+
+.waiter-floor-map-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 18px;
+  margin-top: 12px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.waiter-floor-map-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.waiter-floor-map-legend i {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #7fd56b;
+}
+
+.waiter-floor-map-legend i.mine {
+  background: var(--green);
+}
+
+.waiter-floor-map-legend i.occupied {
+  background: var(--orange);
+}
+
+.waiter-floor-map-legend i.reserved {
+  background: var(--blue);
+}
+
 .waiter-assigned-tables-heading {
   display: flex;
   align-items: center;

@@ -239,12 +239,16 @@ service cloud.firestore {
         || isActiveRestaurantOwner(resource.data.restaurantId)
         || isWaiterFor(resource.data.waiterId);
       allow create, update: if isOwner() || validWaiterAssignment();
-      allow delete: if isOwner();
+      allow delete: if isOwner() || canManageRestaurant(resource.data.restaurantId);
     }
 
     match /tables/{tableId} {
-      allow read: if isOwner() || isActiveRestaurantOwner(resource.data.restaurantId);
-      allow list: if isOwner() || isActiveRestaurantOwner(resource.data.restaurantId);
+      allow read: if isOwner()
+        || isActiveRestaurantOwner(resource.data.restaurantId)
+        || isActiveTeamMemberForRestaurant(resource.data.restaurantId);
+      allow list: if isOwner()
+        || isActiveRestaurantOwner(resource.data.restaurantId)
+        || isActiveTeamMemberForRestaurant(resource.data.restaurantId);
       allow create: if canManageRestaurant(request.resource.data.restaurantId);
       allow update: if canManageRestaurant(resource.data.restaurantId)
         && request.resource.data.restaurantId == resource.data.restaurantId;

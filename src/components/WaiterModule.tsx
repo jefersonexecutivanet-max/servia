@@ -24,6 +24,7 @@ import {
 } from "firebase/firestore";
 import type { User } from "firebase/auth";
 import { db } from "../firebase";
+import type { Table, TableStatus } from "../types/table";
 import { formatCurrency } from "../utils/format";
 import { useRestaurantScope } from "../contexts/RestaurantContext";
 import TableTurnoverModule from "./TableTurnoverModule";
@@ -56,6 +57,17 @@ type AssignedTable = {
   id: string;
   tableNumber: number;
 };
+
+const waiterMapPositions = [
+  { left: "10%", top: "23%" },
+  { left: "38%", top: "20%" },
+  { left: "68%", top: "22%" },
+  { left: "13%", top: "57%" },
+  { left: "42%", top: "52%" },
+  { left: "72%", top: "55%" },
+  { left: "26%", top: "78%" },
+  { left: "61%", top: "79%" },
+];
 
 function convertRequest(
   snapshot: QueryDocumentSnapshot<DocumentData>,
@@ -134,6 +146,7 @@ export default function WaiterModule({
   const [updatingId, setUpdatingId] = useState("");
   const [orders, setOrders] = useState<TableOrder[]>([]);
   const [assignedTables, setAssignedTables] = useState<AssignedTable[]>([]);
+  const [tables, setTables] = useState<Table[]>([]);
   const [ordersAccessReady, setOrdersAccessReady] = useState(false);
   const seenRequestsRef = useRef(new Set<string>());
   const loadedRequestCollectionsRef = useRef(new Set<RequestCollection>());
@@ -359,6 +372,18 @@ export default function WaiterModule({
       },
     );
 
+    const unsubscribeTables = onSnapshot(
+      query(collection(db, "tables"), where("restaurantId", "==", restaurantId)),
+      (snapshot) => {
+        setTables(snapshot.docs.map((item) => item.data() as Table)
+          .sort((first, second) => first.number - second.number));
+      },
+      (snapshotError) => {
+        console.error("Erro ao carregar o mapa de mesas:", snapshotError);
+        setError("NÃ£o foi possÃ­vel carregar o mapa de mesas.");
+      },
+    );
+
     const unsubscribeOrders = waiterId
       ? onSnapshot(
           query(
@@ -397,6 +422,7 @@ export default function WaiterModule({
       unsubscribeCalls();
       unsubscribeBills();
       unsubscribeAssignments();
+      unsubscribeTables();
       unsubscribeOrders();
     };
   }, [restaurantId, waiterId, user.uid, ordersAccessReady]);
@@ -426,6 +452,23 @@ export default function WaiterModule({
     && order.paymentStatus !== "paid"
     && assignedTables.some((table) => table.tableNumber === order.tableNumber),
   );
+  const waiterMapTables = tables.map((table, index) => {
+    const hasOpenOrders = orders.some((order) =>
+      order.tableNumber === table.number
+      && order.status !== "cancelado"
+      && order.paymentStatus !== "paid",
+    );
+    const status: TableStatus = table.status === "reservada"
+      ? "reservada"
+      : hasOpenOrders ? "ocupada" : table.status;
+    const isAssignedToMe = assignedTables.some((assigned) => assigned.tableNumber === table.number);
+    const fallbackPosition = waiterMapPositions[index]
+      ?? { left: `${12 + (index % 4) * 25}%`, top: `${20 + Math.floor(index / 4) * 25}%` };
+    const position = table.x !== undefined && table.y !== undefined
+      ? { left: `${table.x}%`, top: `${table.y}%` }
+      : fallbackPosition;
+    return { ...table, status, isAssignedToMe, position };
+  });
 
   async function markOrderDelivered(order: TableOrder) {
     if (updatingId) return;
@@ -506,6 +549,46 @@ export default function WaiterModule({
           <span>Em atendimento</span>
         </div>
       </div>
+
+      <section className="waiter-floor-map-panel" aria-label="Mapa de mesas do salÃ£o">
+        <div className="waiter-assigned-tables-heading">
+          <h2>Mapa do salÃ£o</h2>
+          <span>{waiterMapTables.filter((table) => table.isAssignedToMe).length} mesas suas</span>
+        </div>
+        {waiterMapTables.length === 0 ? (
+          <p className="waiter-assigned-tables-empty">As mesas cadastradas aparecerÃ£o aqui.</p>
+        ) : (
+          <>
+            <div className="waiter-floor-map">
+              <span className="waiter-floor-entrance">ENTRADA / SALÃƒO</span>
+              {waiterMapTables.map((table) => {
+                const statusLabel = table.status === "reservada"
+                  ? "Reservada"
+                  : table.status === "ocupada" ? "Ocupada" : "Livre";
+                return (
+                  <div
+                    className={`waiter-map-table waiter-map-${table.status} ${table.isAssignedToMe ? "assigned-to-me" : ""}`}
+                    key={table.number}
+                    style={table.position}
+                    title={`Mesa ${table.number} · ${table.isAssignedToMe ? "Em seu atendimento" : statusLabel}`}
+                    aria-label={`Mesa ${table.number}, ${table.isAssignedToMe ? "em seu atendimento" : statusLabel}`}
+                  >
+                    <span>{table.number}</span>
+                    <strong>Mesa {table.number}</strong>
+                    <small>{table.isAssignedToMe ? "Minha mesa" : statusLabel}</small>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="waiter-floor-map-legend">
+              <span><i className="mine" /> Sua mesa</span>
+              <span><i className="occupied" /> Ocupada</span>
+              <span><i className="free" /> Livre</span>
+              <span><i className="reserved" /> Reservada</span>
+            </div>
+          </>
+        )}
+      </section>
 
       <section className="waiter-assigned-tables" aria-label="Mesas assumidas">
         <div className="waiter-assigned-tables-heading">
