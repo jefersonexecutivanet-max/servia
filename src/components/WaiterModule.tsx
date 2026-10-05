@@ -23,6 +23,7 @@ import type { User } from "firebase/auth";
 import { db } from "../firebase";
 import { formatCurrency } from "../utils/format";
 import { useRestaurantScope } from "../contexts/RestaurantContext";
+import TableTurnoverModule from "./TableTurnoverModule";
 
 type RequestKind = "waiter" | "bill";
 type RequestCollection = "tableCalls" | "billRequests";
@@ -108,9 +109,11 @@ function formatRequestTime(date?: Date) {
 export default function WaiterModule({
   user,
   waiterId = "",
+  showTurnover = false,
 }: {
   user: User;
   waiterId?: string;
+  showTurnover?: boolean;
 }) {
   const { restaurantId } = useRestaurantScope();
   const [tableCalls, setTableCalls] = useState<ServiceRequest[]>([]);
@@ -317,6 +320,13 @@ export default function WaiterModule({
           <span>Em atendimento</span>
         </div>
       </div>
+
+      {showTurnover && (
+        <section className="waiter-turnover-panel">
+          <h2>Mesas, ocupação e fechamento</h2>
+          <TableTurnoverModule embedded />
+        </section>
+      )}
 
       <div className="waiter-toolbar">
         <div className="waiter-tabs" role="tablist" aria-label="Fila de atendimento">

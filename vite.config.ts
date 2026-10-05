@@ -4,6 +4,9 @@ import { VitePWA } from 'vite-plugin-pwa'
 
 // https://vite.dev/config/
 export default defineConfig({
+  // Permite que celulares na mesma rede Wi-Fi abram o app hospedado neste PC.
+  server: { host: '0.0.0.0' },
+  preview: { host: '0.0.0.0' },
   plugins: [
     react(),
     VitePWA({

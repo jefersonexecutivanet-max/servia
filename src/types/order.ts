@@ -17,4 +17,7 @@ export type Order = {
   items: OrderItem[];
   total: number;
   createdAt?: Date;
+  paymentStatus?: "paid" | "unpaid";
+  paymentId?: string;
+  paidAt?: Date;
 };

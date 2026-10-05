@@ -204,9 +204,7 @@ export default function OrdersModule() {
     (order) => order.status === "pronto",
   ).length;
 
-  const totalSales = orders
-    .filter((order) => order.status !== "cancelado")
-    .reduce((sum, order) => sum + order.total, 0);
+  const totalOrders = orders.length;
 
   function reloadOrders() {
     window.location.reload();
@@ -298,7 +296,7 @@ export default function OrdersModule() {
           </div>
 
           <div>
-            <strong>{formatCurrency(totalSales)}</strong>
+            <strong>{totalOrders}</strong>
             <span>Pedidos</span>
           </div>
         </div>

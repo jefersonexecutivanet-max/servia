@@ -49,6 +49,12 @@ O sistema possui configurações separadas para impressoras de cozinha e caixa:
 - **Pedidos**: Com a impressão automática ativada na cozinha, todos os pedidos feitos pelos clientes via QR Code serão impressos automaticamente
 - **Contas**: Quando o garçom fechar a mesa, a conta será impressa automaticamente na impressora configurada pelo usuário do caixa
 
+## Acesso pela rede local
+
+Para abrir o Servia em celulares conectados ao mesmo Wi-Fi do computador que o hospeda, execute `npm run dev` ou `npm run preview` e use no computador o endereco `Network` mostrado pelo Vite, em vez de `localhost`. Os QR Codes usam o endereco atual do navegador; portanto, ao gerar/imprimir os QR Codes, o painel precisa estar aberto pelo endereco acessivel na rede local. O computador deve permanecer ligado e o firewall pode solicitar permissao para o servidor.
+
+O modo offline atual mantem o app e dados previamente consultados no cache de cada aparelho. A gravacao offline do Firestore fica na fila daquele aparelho e sincroniza quando a internet voltar; ela nao encaminha pedidos de um celular para a cozinha em tempo real sem internet. Para isso, o Servia precisa de um servidor e armazenamento locais compartilhados na rede do restaurante.
+
 ## Funcionalidades
 
 O app é instalável pelo navegador e mantém o app shell e os dados consultados no dispositivo. Abra uma vez enquanto estiver online para o cache inicial ser preenchido. Pedidos/configurações gravados offline entram na fila local e sincronizam quando a conexão voltar. O cliente abre `/mesa/{número}`, escolhe um garçom ao chamar ou pedir a conta, e o chamado/comanda é encaminhado ao celular autenticado desse garçom.

@@ -105,7 +105,7 @@ function convertOrder(
   };
 }
 
-async function printOrder(order: Order) {
+async function printOrder(order: Order): Promise<boolean> {
   const settings = getRestaurantPrinterSettings();
   const htmlContent = generatePrintContent(
     "COMANDA",
@@ -120,7 +120,7 @@ async function printOrder(order: Order) {
     },
     settings.paperWidth,
   );
-  await printToPrinter(htmlContent, settings);
+  return printToPrinter(htmlContent, settings);
 }
 
 export default function KitchenModule() {
@@ -131,6 +131,8 @@ export default function KitchenModule() {
   const [error, setError] = useState("");
   const [updatingId, setUpdatingId] = useState("");
   const printedOrdersRef = useRef<Set<string>>(new Set());
+  const printingOrdersRef = useRef<Set<string>>(new Set());
+  const preparingOrdersRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (!restaurantId) {
@@ -153,12 +155,32 @@ export default function KitchenModule() {
         setLoading(false);
         setError("");
 
-        // Auto-print new orders if enabled
+        // Move each new order into preparation as soon as it reaches the kitchen.
+        nextOrders.forEach((order) => {
+          if (order.status === "novo" && !preparingOrdersRef.current.has(order.id)) {
+            preparingOrdersRef.current.add(order.id);
+            void updateDoc(doc(db, "orders", order.id), {
+              status: "preparando",
+            }).catch((updateError) => {
+              preparingOrdersRef.current.delete(order.id);
+              console.error("Erro ao iniciar o preparo automaticamente:", updateError);
+            });
+          }
+        });
+
+        // Print each new order once, as soon as it reaches the kitchen.
         if (shouldAutoPrintOrders()) {
           nextOrders.forEach((order) => {
-            if (order.status === "novo" && !printedOrdersRef.current.has(order.id)) {
-              printedOrdersRef.current.add(order.id);
-              void printOrder(order);
+            if (order.status === "novo" && !printedOrdersRef.current.has(order.id) && !printingOrdersRef.current.has(order.id)) {
+              printingOrdersRef.current.add(order.id);
+              void printOrder(order)
+                .then((printed) => {
+                  if (printed) {
+                    printedOrdersRef.current.add(order.id);
+                  }
+                })
+                .catch((printError) => console.error("Erro ao imprimir comanda automaticamente:", printError))
+                .finally(() => printingOrdersRef.current.delete(order.id));
             }
           });
         }
@@ -202,28 +224,11 @@ export default function KitchenModule() {
   ).length;
 
   const totalSales = orders
-    .filter((order) => order.status !== "cancelado")
+    .filter((order) => order.paymentStatus === "paid")
     .reduce((sum, order) => sum + order.total, 0);
 
   function reloadOrders() {
     window.location.reload();
-  }
-
-  async function markAsPreparing(order: Order) {
-    if (updatingId) return;
-
-    setUpdatingId(order.id);
-
-    try {
-      await updateDoc(doc(db, "orders", order.id), {
-        status: "preparando",
-      });
-    } catch (updateError) {
-      console.error("Erro ao atualizar pedido:", updateError);
-      window.alert("Não foi possível atualizar o status do pedido.");
-    } finally {
-      setUpdatingId("");
-    }
   }
 
   async function markAsReady(order: Order) {
@@ -478,20 +483,6 @@ export default function KitchenModule() {
                   <Printer size={18} />
                   Imprimir
                 </button>
-
-                {order.status === "novo" && (
-                  <button
-                    className="primary-button"
-                    type="button"
-                    disabled={updatingId === order.id}
-                    onClick={() => {
-                      void markAsPreparing(order);
-                    }}
-                  >
-                    <ChefHat size={18} />
-                    Iniciar preparo
-                  </button>
-                )}
 
                 {order.status === "preparando" && (
                   <button

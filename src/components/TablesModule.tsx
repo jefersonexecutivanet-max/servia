@@ -23,87 +23,12 @@ import {
 
 import { formatCurrency } from "../utils/format";
 import { generatePrintContent, printContent as printToPrinter, getUserPrinterSettings } from "../utils/printer";
-import { collection, deleteDoc, deleteField, doc, onSnapshot, query, setDoc, updateDoc, where, getDocs } from "firebase/firestore";
+import { collection, deleteDoc, deleteField, doc, onSnapshot, query, setDoc, updateDoc, where, getDocs, serverTimestamp, writeBatch } from "firebase/firestore";
 import { db } from "../firebase";
 import { useRestaurantScope } from "../contexts/RestaurantContext";
 import type { Table, TableStatus } from "../types/table";
 
-type OrderItem = {
-  name: string;
-  quantity: number;
-  price: number;
-};
-
 const initialTables: Table[] = [];
-
-const exampleItems: Record<number, OrderItem[]> = {
-  1: [
-    {
-      name: "Hambúrguer Artesanal",
-      quantity: 2,
-      price: 32,
-    },
-    {
-      name: "Coca-Cola",
-      quantity: 2,
-      price: 7,
-    },
-    {
-      name: "Batata Frita",
-      quantity: 1,
-      price: 18.9,
-    },
-    {
-      name: "Água",
-      quantity: 2,
-      price: 5,
-    },
-  ],
-
-  3: [
-    {
-      name: "Filé Executivo",
-      quantity: 1,
-      price: 59.5,
-    },
-    {
-      name: "Suco Natural",
-      quantity: 1,
-      price: 25,
-    },
-  ],
-
-  5: [
-    {
-      name: "Pizza Grande",
-      quantity: 1,
-      price: 69.9,
-    },
-    {
-      name: "Refrigerante",
-      quantity: 2,
-      price: 14.9,
-    },
-    {
-      name: "Sobremesa",
-      quantity: 1,
-      price: 58.1,
-    },
-  ],
-
-  7: [
-    {
-      name: "Pizza Grande",
-      quantity: 2,
-      price: 69.9,
-    },
-    {
-      name: "Refrigerante",
-      quantity: 2,
-      price: 14.3,
-    },
-  ],
-};
 
 const tablePositions = [
   { left: "10%", top: "23%" },
@@ -137,6 +62,7 @@ export default function TablesModule() {
   const { restaurantId, systemAdmin, setRestaurantId } = useRestaurantScope();
   const [tables, setTables] =
     useState<Table[]>(initialTables);
+  const [orders, setOrders] = useState<any[]>([]);
 
   const [selectedTable, setSelectedTable] =
     useState<Table | null>(null);
@@ -170,6 +96,7 @@ export default function TablesModule() {
   const [showRestaurantDropdown, setShowRestaurantDropdown] = useState(false);
 
   useEffect(() => {
+    setTables([]);
     if (!restaurantId) {
       return;
     }
@@ -186,6 +113,16 @@ export default function TablesModule() {
   }, [restaurantId]);
 
   useEffect(() => {
+    setOrders([]);
+    if (!restaurantId) return;
+    return onSnapshot(
+      query(collection(db, "orders"), where("restaurantId", "==", restaurantId)),
+      (snapshot) => setOrders(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))),
+      (error) => console.error("Erro ao carregar pedidos das mesas:", error),
+    );
+  }, [restaurantId]);
+
+  useEffect(() => {
     // Load available restaurants for system admin
     if (systemAdmin) {
       getDocs(query(collection(db, "restaurants"), where("status", "==", "active")))
@@ -198,48 +135,51 @@ export default function TablesModule() {
     }
   }, [systemAdmin]);
 
+  const unpaidOrders = useMemo(() => orders.filter((order) => order.status !== "cancelado" && order.paymentStatus !== "paid"), [orders]);
+  const operationalTables = useMemo(() => tables.map((table) => {
+    const tableOrders = unpaidOrders.filter((order) => order.tableNumber === table.number);
+    return tableOrders.length > 0
+      ? { ...table, status: "ocupada" as const, total: tableOrders.reduce((sum, order) => sum + (Number(order.total) || 0), 0) }
+      : table;
+  }), [tables, unpaidOrders]);
+
   const occupied = useMemo(
     () =>
-      tables.filter(
+      operationalTables.filter(
         (table) => table.status === "ocupada",
       ).length,
-    [tables],
+    [operationalTables],
   );
 
   const free = useMemo(
     () =>
-      tables.filter(
+      operationalTables.filter(
         (table) => table.status === "livre",
       ).length,
-    [tables],
+    [operationalTables],
   );
 
   const reserved = useMemo(
     () =>
-      tables.filter(
+      operationalTables.filter(
         (table) => table.status === "reservada",
       ).length,
-    [tables],
+    [operationalTables],
   );
 
   const totalOpen = useMemo(
     () =>
-      tables.reduce(
+      operationalTables.reduce(
         (sum, table) => sum + table.total,
         0,
       ),
-    [tables],
+    [operationalTables],
   );
 
-  const selectedItems = useMemo(() => {
-    if (!selectedTable) {
-      return [];
-    }
-
-    return (
-      exampleItems[selectedTable.number] || []
-    );
-  }, [selectedTable]);
+  const selectedTableOrders = unpaidOrders.filter((order) => order.tableNumber === selectedTable?.number);
+  const selectedItems = selectedTableOrders.flatMap((order) => Array.isArray(order.items)
+    ? order.items.map((item: any) => ({ name: String(item.name || "Produto"), quantity: Number(item.quantity) || 0, price: Number(item.price) || 0 }))
+    : []);
 
   const itemsTotal = useMemo(
     () =>
@@ -516,6 +456,10 @@ export default function TablesModule() {
     if (!selectedTable) {
       return;
     }
+    if (closingTotal <= 0) {
+      window.alert("Esta comanda não tem um valor real para receber.");
+      return;
+    }
 
     try {
       // Print bill automatically if enabled
@@ -543,12 +487,33 @@ export default function TablesModule() {
         await printToPrinter(billContent, userPrinterSettings);
       }
 
-      await updateDoc(doc(db, "tables", `${restaurantId}_${selectedTable.number}`), {
+      const tableRef = doc(db, "tables", `${restaurantId}_${selectedTable.number}`);
+      const paymentRef = doc(collection(db, "payments"));
+      const batch = writeBatch(db);
+      batch.set(paymentRef, {
+        restaurantId,
+        tableId: `${restaurantId}_${selectedTable.number}`,
+        tableNumber: selectedTable.number,
+        method: paymentMethod,
+        amount: closingTotal,
+        items: selectedItems.reduce((quantity, item) => quantity + item.quantity, 0),
+        status: "completed",
+        createdAt: serverTimestamp(),
+      });
+      selectedTableOrders.forEach((order) => {
+        batch.update(doc(db, "orders", order.id), {
+          paymentStatus: "paid",
+          paymentId: paymentRef.id,
+          paidAt: serverTimestamp(),
+        });
+      });
+      batch.update(tableRef, {
         status: "livre",
         guests: 0,
         total: 0,
         customer: deleteField(),
       });
+      await batch.commit();
       closeAllModals();
       setSelectedTable(null);
     } catch (closeError) {
@@ -558,7 +523,7 @@ export default function TablesModule() {
   }
 
   function openFirstFreeQR() {
-    const firstFree = tables.find(
+    const firstFree = operationalTables.find(
       (table) =>
         table.status === "livre",
     );
@@ -574,7 +539,7 @@ export default function TablesModule() {
   }
 
   function openFirstFreeTap() {
-    const firstFree = tables.find(
+    const firstFree = operationalTables.find(
       (table) =>
         table.status === "livre",
     );
@@ -767,7 +732,7 @@ export default function TablesModule() {
               <span>JANELAS</span>
             </div>
 
-            {tables.map((table) => {
+            {operationalTables.map((table) => {
               const position = table.x !== undefined && table.y !== undefined
                 ? { left: `${table.x}%`, top: `${table.y}%` }
                 : tablePositions[table.number - 1] || tablePositions[0];

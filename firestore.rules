@@ -11,6 +11,29 @@ service cloud.firestore {
         && request.auth.token.email == 'finho60@hotmail.com';
     }
 
+    function isActiveRestaurantOwner(restaurantId) {
+      let restaurantPath = /databases/$(database)/documents/restaurants/$(restaurantId);
+      return signedIn()
+        && request.auth.uid == restaurantId
+        && exists(restaurantPath)
+        && get(restaurantPath).data.ownerEmail == request.auth.token.email
+        && get(restaurantPath).data.status == 'active'
+        && get(restaurantPath).data.monthlyPaidUntil is timestamp
+        && get(restaurantPath).data.monthlyPaidUntil > request.time;
+    }
+
+    function canManageRestaurant(restaurantId) {
+      return isOwner() || isActiveRestaurantOwner(restaurantId);
+    }
+
+    function isActiveWaiterForRestaurant(waiterId, restaurantId) {
+      let waiterPath = /databases/$(database)/documents/waiterDirectory/$(waiterId);
+      return waiterId is string
+        && exists(waiterPath)
+        && get(waiterPath).data.active == true
+        && get(waiterPath).data.restaurantId == restaurantId;
+    }
+
     function isWaiterFor(waiterId) {
       let waiterPath = /databases/$(database)/documents/waiters/$(waiterId);
       return signedIn()
@@ -34,33 +57,43 @@ service cloud.firestore {
 
     function validCustomerOrder() {
       let data = request.resource.data;
-      let directoryPath = /databases/$(database)/documents/waiterDirectory/$(data.waiterId);
-      return data.keys().hasAll(['tableNumber', 'status', 'source', 'items', 'total', 'createdAt'])
-        && data.keys().hasOnly(['tableNumber', 'waiterId', 'status', 'source', 'items', 'total', 'createdAt'])
+      let tablePath = /databases/$(database)/documents/tables/$(data.tableId);
+      return data.keys().hasAll(['restaurantId', 'tableId', 'tableNumber', 'status', 'source', 'items', 'total', 'createdAt'])
+        && data.keys().hasOnly(['restaurantId', 'tableId', 'tableNumber', 'waiterId', 'status', 'source', 'items', 'total', 'createdAt'])
+        && data.restaurantId is string
+        && data.restaurantId.size() > 0
         && data.tableNumber is int
+        && data.tableId is string
         && data.tableNumber > 0
         && data.status == 'novo'
         && data.source == 'qrcode'
         && data.items is list
         && data.total is number
         && data.createdAt is timestamp
-        && (!('waiterId' in data)
-          || (data.waiterId is string
-            && exists(directoryPath)
-            && get(directoryPath).data.active == true));
+        && exists(tablePath)
+        && get(tablePath).data.restaurantId == data.restaurantId
+        && get(tablePath).data.number == data.tableNumber
+        && (!('waiterId' in data) || isActiveWaiterForRestaurant(data.waiterId, data.restaurantId));
     }
 
     function validServiceRequest() {
       let data = request.resource.data;
       let directoryPath = /databases/$(database)/documents/waiterDirectory/$(data.waiterId);
-      return data.keys().hasAll(['tableNumber', 'type', 'waiterId', 'waiterName', 'status', 'createdAt'])
-        && data.keys().hasOnly(['tableNumber', 'type', 'waiterId', 'waiterName', 'status', 'createdAt'])
+      let tablePath = /databases/$(database)/documents/tables/$(data.tableId);
+      return data.keys().hasAll(['restaurantId', 'tableId', 'tableNumber', 'type', 'waiterId', 'waiterName', 'status', 'createdAt'])
+        && data.keys().hasOnly(['restaurantId', 'tableId', 'tableNumber', 'type', 'waiterId', 'waiterName', 'status', 'createdAt'])
+        && data.restaurantId is string
+        && data.tableId is string
         && data.tableNumber is int
         && data.tableNumber > 0
         && (data.type == 'waiter' || data.type == 'bill')
         && data.waiterId is string
         && exists(directoryPath)
         && get(directoryPath).data.active == true
+        && get(directoryPath).data.restaurantId == data.restaurantId
+        && exists(tablePath)
+        && get(tablePath).data.restaurantId == data.restaurantId
+        && get(tablePath).data.number == data.tableNumber
         && get(directoryPath).data.name == data.waiterName
         && data.status == 'pending'
         && data.createdAt is timestamp;
@@ -69,13 +102,20 @@ service cloud.firestore {
     function validWaiterAssignment() {
       let data = request.resource.data;
       let directoryPath = /databases/$(database)/documents/waiterDirectory/$(data.waiterId);
-      return data.keys().hasAll(['tableNumber', 'waiterId', 'waiterName', 'updatedAt'])
-        && data.keys().hasOnly(['tableNumber', 'waiterId', 'waiterName', 'updatedAt'])
+      let tablePath = /databases/$(database)/documents/tables/$(data.tableId);
+      return data.keys().hasAll(['restaurantId', 'tableId', 'tableNumber', 'waiterId', 'waiterName', 'updatedAt'])
+        && data.keys().hasOnly(['restaurantId', 'tableId', 'tableNumber', 'waiterId', 'waiterName', 'updatedAt'])
+        && data.restaurantId is string
+        && data.tableId is string
         && data.tableNumber is int
         && data.tableNumber > 0
         && data.waiterId is string
         && exists(directoryPath)
         && get(directoryPath).data.active == true
+        && get(directoryPath).data.restaurantId == data.restaurantId
+        && exists(tablePath)
+        && get(tablePath).data.restaurantId == data.restaurantId
+        && get(tablePath).data.number == data.tableNumber
         && get(directoryPath).data.name == data.waiterName
         && data.updatedAt is timestamp;
     }
@@ -92,14 +132,17 @@ service cloud.firestore {
 
     match /menuItems/{itemId} {
       allow read: if true;
-      allow write: if isOwner();
+      allow create: if isOwner() || canManageRestaurant(request.resource.data.restaurantId);
+      allow update: if isOwner() || (canManageRestaurant(resource.data.restaurantId)
+        && request.resource.data.restaurantId == resource.data.restaurantId);
+      allow delete: if isOwner() || canManageRestaurant(resource.data.restaurantId);
     }
 
     match /restaurants/{restaurantId} {
       allow read: if isOwner() || (signedIn() && request.auth.uid == restaurantId);
-      allow list: if isOwner() || signedIn();
+      allow list: if isOwner();
       allow create: if isOwner();
-      allow update: if isOwner() || (signedIn() && request.auth.uid == restaurantId);
+      allow update: if isOwner();
       allow delete: if isOwner();
     }
 
@@ -128,15 +171,55 @@ service cloud.firestore {
     }
 
     match /tables/{tableId} {
-      allow read: if isOwner();
-      allow list: if isOwner();
-      allow create, update, delete: if isOwner();
+      allow read: if isOwner() || isActiveRestaurantOwner(resource.data.restaurantId);
+      allow list: if isOwner() || isActiveRestaurantOwner(resource.data.restaurantId);
+      allow create: if canManageRestaurant(request.resource.data.restaurantId);
+      allow update: if canManageRestaurant(resource.data.restaurantId)
+        && request.resource.data.restaurantId == resource.data.restaurantId;
+      allow delete: if canManageRestaurant(resource.data.restaurantId);
     }
 
     match /orders/{orderId} {
       allow create: if isOwner() || (request.auth == null && validCustomerOrder());
-      allow read: if isOwner() || isWaiterFor(resource.data.waiterId);
-      allow update, delete: if isOwner();
+      allow read: if isOwner()
+        || isActiveRestaurantOwner(resource.data.restaurantId)
+        || isWaiterFor(resource.data.waiterId);
+      allow update: if canManageRestaurant(resource.data.restaurantId)
+        && request.resource.data.restaurantId == resource.data.restaurantId;
+      allow delete: if canManageRestaurant(resource.data.restaurantId);
+    }
+
+    match /stock/{stockItemId} {
+      allow read: if isOwner() || isActiveRestaurantOwner(resource.data.restaurantId);
+      allow create: if canManageRestaurant(request.resource.data.restaurantId)
+        && request.resource.data.keys().hasOnly(['restaurantId', 'name', 'category', 'quantity', 'unit', 'minQuantity', 'price', 'lastUpdated'])
+        && request.resource.data.name is string
+        && request.resource.data.quantity is number
+        && request.resource.data.quantity >= 0;
+      allow update: if canManageRestaurant(resource.data.restaurantId)
+        && request.resource.data.restaurantId == resource.data.restaurantId
+        && request.resource.data.keys().hasOnly(['restaurantId', 'name', 'category', 'quantity', 'unit', 'minQuantity', 'price', 'lastUpdated'])
+        && request.resource.data.quantity is number
+        && request.resource.data.quantity >= 0;
+      allow delete: if canManageRestaurant(resource.data.restaurantId);
+    }
+
+    match /cashTransactions/{transactionId} {
+      allow read: if isOwner() || isActiveRestaurantOwner(resource.data.restaurantId);
+      allow create: if canManageRestaurant(request.resource.data.restaurantId)
+        && request.resource.data.keys().hasOnly(['restaurantId', 'type', 'category', 'description', 'amount', 'paymentMethod', 'reference', 'createdAt'])
+        && (request.resource.data.type == 'entrada' || request.resource.data.type == 'saida')
+        && request.resource.data.amount is number
+        && request.resource.data.amount > 0
+        && request.resource.data.description is string
+        && request.resource.data.createdAt is timestamp;
+      allow update: if canManageRestaurant(resource.data.restaurantId)
+        && request.resource.data.restaurantId == resource.data.restaurantId
+        && request.resource.data.keys().hasOnly(['restaurantId', 'type', 'category', 'description', 'amount', 'paymentMethod', 'reference', 'createdAt'])
+        && (request.resource.data.type == 'entrada' || request.resource.data.type == 'saida')
+        && request.resource.data.amount is number
+        && request.resource.data.amount > 0;
+      allow delete: if canManageRestaurant(resource.data.restaurantId);
     }
 
     match /tableCalls/{callId} {
@@ -154,28 +237,44 @@ service cloud.firestore {
     }
 
     match /payments/{paymentId} {
-      allow read: if isOwner();
-      allow create: if request.auth == null
-        && request.resource.data.keys().hasAll(['tableNumber', 'method', 'amount', 'items', 'status', 'createdAt'])
-        && request.resource.data.keys().hasOnly(['tableNumber', 'method', 'amount', 'items', 'status', 'createdAt'])
+      allow read: if isOwner() || isActiveRestaurantOwner(resource.data.restaurantId);
+      allow create: if canManageRestaurant(request.resource.data.restaurantId)
+        && request.resource.data.keys().hasAll(['restaurantId', 'tableId', 'tableNumber', 'method', 'amount', 'items', 'status', 'createdAt'])
+        && request.resource.data.keys().hasOnly(['restaurantId', 'tableId', 'tableNumber', 'method', 'amount', 'items', 'status', 'createdAt'])
+        && request.resource.data.restaurantId is string
+        && request.resource.data.tableId is string
         && request.resource.data.tableNumber is int
         && request.resource.data.amount is number
+        && request.resource.data.amount > 0
         && request.resource.data.items is int
+        && request.resource.data.items >= 0
         && request.resource.data.status == 'completed'
-        && request.resource.data.createdAt is timestamp;
-      allow update, delete: if false;
+        && request.resource.data.createdAt is timestamp
+        && exists(/databases/$(database)/documents/tables/$(request.resource.data.tableId))
+        && get(/databases/$(database)/documents/tables/$(request.resource.data.tableId)).data.restaurantId == request.resource.data.restaurantId
+        && get(/databases/$(database)/documents/tables/$(request.resource.data.tableId)).data.number == request.resource.data.tableNumber;
+      allow update: if canManageRestaurant(resource.data.restaurantId)
+        && request.resource.data.restaurantId == resource.data.restaurantId;
+      allow delete: if canManageRestaurant(resource.data.restaurantId);
     }
 
     match /tableReleases/{releaseId} {
-      allow read: if isOwner();
+      allow read: if isOwner() || isActiveRestaurantOwner(resource.data.restaurantId);
       allow create: if request.auth == null
-        && request.resource.data.keys().hasAll(['tableNumber', 'totalAmount', 'paymentMethod', 'status', 'createdAt'])
-        && request.resource.data.keys().hasOnly(['tableNumber', 'totalAmount', 'paymentMethod', 'status', 'createdAt'])
+        && request.resource.data.keys().hasAll(['restaurantId', 'tableId', 'tableNumber', 'totalAmount', 'paymentMethod', 'status', 'createdAt'])
+        && request.resource.data.keys().hasOnly(['restaurantId', 'tableId', 'tableNumber', 'totalAmount', 'paymentMethod', 'status', 'createdAt'])
+        && request.resource.data.restaurantId is string
         && request.resource.data.tableNumber is int
         && request.resource.data.totalAmount is number
         && request.resource.data.status == 'pending'
-        && request.resource.data.createdAt is timestamp;
-      allow update, delete: if false;
+        && request.resource.data.createdAt is timestamp
+        && request.resource.data.tableId is string
+        && exists(/databases/$(database)/documents/tables/$(request.resource.data.tableId))
+        && get(/databases/$(database)/documents/tables/$(request.resource.data.tableId)).data.restaurantId == request.resource.data.restaurantId
+        && get(/databases/$(database)/documents/tables/$(request.resource.data.tableId)).data.number == request.resource.data.tableNumber;
+      allow update: if canManageRestaurant(resource.data.restaurantId)
+        && request.resource.data.restaurantId == resource.data.restaurantId;
+      allow delete: if canManageRestaurant(resource.data.restaurantId);
     }
   }
 }

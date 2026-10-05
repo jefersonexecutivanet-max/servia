@@ -3820,6 +3820,25 @@ input:focus-visible {
   animation: pageIn 0.35s ease;
 }
 
+.turnover-embedded .turnover-tables {
+  margin-bottom: 22px;
+}
+
+.turnover-embedded-loading {
+  padding: 18px;
+  color: var(--muted, #87938f);
+}
+
+.waiter-turnover-panel {
+  margin: 22px 0;
+}
+
+.waiter-turnover-panel > h2 {
+  margin: 0 0 14px;
+  color: #eef6f3;
+  font: 600 17px "Space Grotesk", sans-serif;
+}
+
 .turnover-metrics {
   display: grid;
   grid-template-columns: repeat(4, 1fr);

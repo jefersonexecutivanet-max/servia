@@ -1,5 +1,8 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Plus, Minus, Edit, Trash2, Search, Package, AlertTriangle } from "lucide-react";
+import { addDoc, collection, deleteDoc, doc, onSnapshot, query, serverTimestamp, updateDoc, where } from "firebase/firestore";
+import { db } from "../firebase";
+import { useRestaurantScope } from "../contexts/RestaurantContext";
 
 interface StockItem {
   id: string;
@@ -12,61 +15,9 @@ interface StockItem {
   lastUpdated: Date;
 }
 
-const mockItems: StockItem[] = [
-  {
-    id: "1",
-    name: "Coca-Cola 2L",
-    category: "bebidas",
-    quantity: 24,
-    unit: "un",
-    minQuantity: 10,
-    price: 8.50,
-    lastUpdated: new Date(),
-  },
-  {
-    id: "2",
-    name: "Carne Bovina (kg)",
-    category: "alimentos",
-    quantity: 15,
-    unit: "kg",
-    minQuantity: 20,
-    price: 45.00,
-    lastUpdated: new Date(),
-  },
-  {
-    id: "3",
-    name: "Pratos Descartáveis",
-    category: "utensílios",
-    quantity: 100,
-    unit: "un",
-    minQuantity: 50,
-    price: 0.30,
-    lastUpdated: new Date(),
-  },
-  {
-    id: "4",
-    name: "Detergente",
-    category: "limpeza",
-    quantity: 5,
-    unit: "un",
-    minQuantity: 10,
-    price: 2.50,
-    lastUpdated: new Date(),
-  },
-  {
-    id: "5",
-    name: "Cerveja Lata",
-    category: "bebidas",
-    quantity: 48,
-    unit: "un",
-    minQuantity: 24,
-    price: 6.00,
-    lastUpdated: new Date(),
-  },
-];
-
 export default function StockModule() {
-  const [items, setItems] = useState<StockItem[]>(mockItems);
+  const { restaurantId } = useRestaurantScope();
+  const [items, setItems] = useState<StockItem[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("todos");
   const [showModal, setShowModal] = useState(false);
@@ -80,7 +31,38 @@ export default function StockModule() {
     price: 0,
   });
 
-  const categories = ["todos", "bebidas", "alimentos", "utensílios", "limpeza", "outros"];
+  // Carregar itens reais do Firestore
+  useEffect(() => {
+    setItems([]);
+    if (!restaurantId) {
+      return;
+    }
+
+    const unsubscribe = onSnapshot(
+      query(collection(db, "stock"), where("restaurantId", "==", restaurantId)),
+      (snapshot) => {
+        const stockItems = snapshot.docs.map(doc => {
+          const data = doc.data();
+          return {
+            id: doc.id,
+            name: data.name || "",
+            category: data.category || "",
+            quantity: data.quantity || 0,
+            unit: data.unit || "un",
+            minQuantity: data.minQuantity || 0,
+            price: data.price || 0,
+            lastUpdated: data.lastUpdated?.toDate() || new Date(),
+          } as StockItem;
+        });
+        setItems(stockItems);
+      },
+      (error) => {
+        console.error("Erro ao carregar estoque:", error);
+      }
+    );
+
+    return () => unsubscribe();
+  }, [restaurantId]);
 
   const filteredItems = items.filter(
     (item) =>
@@ -94,7 +76,7 @@ export default function StockModule() {
     setEditingItem(null);
     setFormData({
       name: "",
-      category: "alimentos",
+      category: "",
       quantity: 0,
       unit: "un",
       minQuantity: 0,
@@ -117,106 +99,88 @@ export default function StockModule() {
   };
 
   const handleDeleteItem = (id: string) => {
-    if (confirm("Tem certeza que deseja excluir este item?")) {
-      setItems(items.filter((item) => item.id !== id));
+    if (window.confirm("Deseja excluir este item?")) {
+      void deleteDoc(doc(db, "stock", id)).catch((error) => {
+        console.error("Erro ao excluir item:", error);
+        window.alert("Não foi possível excluir o item.");
+      });
     }
   };
 
-  const handleSaveItem = () => {
-    if (!formData.name.trim()) return;
-
-    if (editingItem) {
-      setItems(
-        items.map((item) =>
-          item.id === editingItem.id
-            ? {
-                ...item,
-                name: formData.name,
-                category: formData.category,
-                quantity: formData.quantity,
-                unit: formData.unit,
-                minQuantity: formData.minQuantity,
-                price: formData.price,
-                lastUpdated: new Date(),
-              }
-            : item
-        )
-      );
-    } else {
-      const newItem: StockItem = {
-        id: Date.now().toString(),
-        name: formData.name,
-        category: formData.category,
-        quantity: formData.quantity,
-        unit: formData.unit,
-        minQuantity: formData.minQuantity,
-        price: formData.price,
-        lastUpdated: new Date(),
-      };
-      setItems([...items, newItem]);
-    }
-    setShowModal(false);
+  const handleUpdateQuantity = (id: string, delta: number) => {
+    const item = items.find((current) => current.id === id);
+    if (!item) return;
+    void updateDoc(doc(db, "stock", id), {
+      quantity: Math.max(0, item.quantity + delta),
+      lastUpdated: serverTimestamp(),
+    }).catch((error) => {
+      console.error("Erro ao atualizar quantidade:", error);
+      window.alert("Não foi possível atualizar a quantidade.");
+    });
   };
 
-  const handleUpdateQuantity = (id: string, change: number) => {
-    setItems(
-      items.map((item) =>
-        item.id === id
-          ? { ...item, quantity: Math.max(0, item.quantity + change), lastUpdated: new Date() }
-          : item
-      )
-    );
+  const handleSaveItem = async () => {
+    if (!formData.name || formData.quantity < 0) {
+      alert("Preencha todos os campos obrigatórios");
+      return;
+    }
+
+    if (!restaurantId) {
+      window.alert("Selecione primeiro um restaurante ativo.");
+      return;
+    }
+
+    try {
+      const itemData = { ...formData, restaurantId, lastUpdated: serverTimestamp() };
+      if (editingItem) {
+        await updateDoc(doc(db, "stock", editingItem.id), itemData);
+      } else {
+        await addDoc(collection(db, "stock"), itemData);
+      }
+      setShowModal(false);
+    } catch (error) {
+      console.error("Erro ao salvar item:", error);
+      window.alert("Não foi possível salvar o item.");
+    }
   };
 
   return (
-    <div className="module-page">
+    <div className="stock-page">
       <div className="module-header">
         <div>
+          <div className="eyebrow">ESTOQUE</div>
           <h1>Controle de Estoque</h1>
-          <p>Gerencie ingredientes e produtos do restaurante</p>
+          <p>Gerencie ingredientes, bebidas e materiais do restaurante.</p>
         </div>
-        <button className="primary-button" onClick={handleAddItem}>
+
+        <button className="primary-button" type="button" onClick={handleAddItem}>
           <Plus size={18} />
-          Adicionar Item
+          Novo Item
         </button>
       </div>
 
-      <div className="stock-dashboard">
-        <div className="stat-card warning">
-          <div className="stat-icon">
-            <AlertTriangle size={24} />
+      {/* Alertas de estoque baixo */}
+      {lowStockItems.length > 0 && (
+        <div className="stock-alerts">
+          <div className="alert-header">
+            <AlertTriangle size={20} />
+            <strong>Estoque Baixo ({lowStockItems.length})</strong>
           </div>
-          <div>
-            <span>Estoque Baixo</span>
-            <strong>{lowStockItems.length} itens</strong>
-          </div>
-        </div>
-
-        <div className="stat-card">
-          <div className="stat-icon">
-            <Package size={24} />
-          </div>
-          <div>
-            <span>Total de Itens</span>
-            <strong>{items.length}</strong>
+          <div className="alert-list">
+            {lowStockItems.map((item) => (
+              <div key={item.id} className="alert-item">
+                <strong>{item.name}</strong>
+                <span>Quantidade: {item.quantity} {item.unit}</span>
+                <span>Mínimo: {item.minQuantity} {item.unit}</span>
+              </div>
+            ))}
           </div>
         </div>
+      )}
 
-        <div className="stat-card">
-          <div className="stat-icon">
-            <Package size={24} />
-          </div>
-          <div>
-            <span>Valor Total</span>
-            <strong>
-              R$ {items.reduce((sum, item) => sum + item.price * item.quantity, 0).toFixed(2)}
-            </strong>
-          </div>
-        </div>
-      </div>
-
-      <div className="filters-bar">
-        <div className="search-input">
+      {/* Filtros */}
+      <div className="stock-filters">
+        <div className="search-box">
           <Search size={18} />
           <input
             type="text"
@@ -226,105 +190,120 @@ export default function StockModule() {
           />
         </div>
 
-        <div className="category-filters">
-          {categories.map((category) => (
-            <button
-              key={category}
-              className={`filter-button ${selectedCategory === category ? "active" : ""}`}
-              onClick={() => setSelectedCategory(category)}
-            >
-              {category === "todos" ? "Todos" : category.charAt(0).toUpperCase() + category.slice(1)}
-            </button>
-          ))}
+        <div className="filter-buttons">
+          <button
+            className={selectedCategory === "todos" ? "active" : ""}
+            type="button"
+            onClick={() => setSelectedCategory("todos")}
+          >
+            Todos
+          </button>
+          <button
+            className={selectedCategory === "bebidas" ? "active" : ""}
+            type="button"
+            onClick={() => setSelectedCategory("bebidas")}
+          >
+            Bebidas
+          </button>
+          <button
+            className={selectedCategory === "alimentos" ? "active" : ""}
+            type="button"
+            onClick={() => setSelectedCategory("alimentos")}
+          >
+            Alimentos
+          </button>
+          <button
+            className={selectedCategory === "utensílios" ? "active" : ""}
+            type="button"
+            onClick={() => setSelectedCategory("utensílios")}
+          >
+            Utensílios
+          </button>
+          <button
+            className={selectedCategory === "limpeza" ? "active" : ""}
+            type="button"
+            onClick={() => setSelectedCategory("limpeza")}
+          >
+            Limpeza
+          </button>
         </div>
       </div>
 
-      {lowStockItems.length > 0 && (
-        <div className="alert-banner warning">
-          <AlertTriangle size={20} />
-          <span>
-            {lowStockItems.length} item(ns) com estoque abaixo do mínimo:{" "}
-            {lowStockItems.map((item) => item.name).join(", ")}
-          </span>
-        </div>
-      )}
-
-      <div className="stock-grid">
-        {filteredItems.map((item) => (
-          <div
-            key={item.id}
-            className={`stock-card ${item.quantity <= item.minQuantity ? "low-stock" : ""}`}
-          >
-            <div className="stock-card-header">
-              <div>
-                <h3>{item.name}</h3>
-                <span className="category-badge">{item.category}</span>
+      {/* Lista de itens */}
+      <div className="stock-items">
+        {filteredItems.length === 0 ? (
+          <div className="empty-state">
+            <Package size={48} />
+            <strong>Nenhum item cadastrado</strong>
+            <p>Clique em "Novo Item" para adicionar produtos ao estoque.</p>
+          </div>
+        ) : (
+          filteredItems.map((item) => (
+            <div
+              key={item.id}
+              className={`stock-item ${item.quantity <= item.minQuantity ? "low-stock" : ""}`}
+            >
+              <div className="item-icon">
+                <Package size={24} />
               </div>
-              <div className="stock-actions">
-                <button onClick={() => handleEditItem(item)} title="Editar">
-                  <Edit size={16} />
-                </button>
-                <button onClick={() => handleDeleteItem(item.id)} title="Excluir">
-                  <Trash2 size={16} />
-                </button>
-              </div>
-            </div>
 
-            <div className="stock-card-body">
-              <div className="stock-quantity">
-                <span className="quantity-label">Quantidade</span>
-                <div className="quantity-control">
-                  <button onClick={() => handleUpdateQuantity(item.id, -1)}>
+              <div className="item-info">
+                <strong>{item.name}</strong>
+                <span>{item.category}</span>
+                <span>R$ {item.price.toFixed(2)} / {item.unit}</span>
+              </div>
+
+              <div className="item-quantity">
+                <div className="quantity-controls">
+                  <button
+                    className="quantity-btn"
+                    type="button"
+                    onClick={() => handleUpdateQuantity(item.id, -1)}
+                  >
                     <Minus size={16} />
                   </button>
-                  <span className="quantity-value">
-                    {item.quantity} {item.unit}
-                  </span>
-                  <button onClick={() => handleUpdateQuantity(item.id, 1)}>
+                  <span className="quantity-value">{item.quantity} {item.unit}</span>
+                  <button
+                    className="quantity-btn"
+                    type="button"
+                    onClick={() => handleUpdateQuantity(item.id, 1)}
+                  >
                     <Plus size={16} />
                   </button>
                 </div>
+                <span className="min-quantity">Mín: {item.minQuantity} {item.unit}</span>
               </div>
 
-              <div className="stock-details">
-                <div>
-                  <span>Preço unitário</span>
-                  <strong>R$ {item.price.toFixed(2)}</strong>
-                </div>
-                <div>
-                  <span>Valor total</span>
-                  <strong>R$ {(item.price * item.quantity).toFixed(2)}</strong>
-                </div>
-                <div>
-                  <span>Mínimo</span>
-                  <strong>{item.minQuantity} {item.unit}</strong>
-                </div>
+              <div className="item-actions">
+                <button
+                  className="icon-button"
+                  type="button"
+                  onClick={() => handleEditItem(item)}
+                >
+                  <Edit size={18} />
+                </button>
+                <button
+                  className="icon-button"
+                  type="button"
+                  onClick={() => handleDeleteItem(item.id)}
+                >
+                  <Trash2 size={18} />
+                </button>
               </div>
             </div>
-
-            {item.quantity <= item.minQuantity && (
-              <div className="stock-warning">
-                <AlertTriangle size={14} />
-                <span>Estoque baixo</span>
-              </div>
-            )}
-          </div>
-        ))}
+          ))
+        )}
       </div>
 
+      {/* Modal */}
       {showModal && (
         <div className="modal-overlay">
-          <div className="modal">
-            <div className="modal-header">
-              <h2>{editingItem ? "Editar Item" : "Adicionar Item"}</h2>
-              <button onClick={() => setShowModal(false)}>
-                <Trash2 size={18} />
-              </button>
-            </div>
+          <div className="modal-content">
+            <h2>{editingItem ? "Editar Item" : "Novo Item"}</h2>
 
-            <div className="modal-body">
-              <div className="form-field">
-                <label>Nome do item</label>
+            <form>
+              <div className="form-group">
+                <label>Nome</label>
                 <input
                   type="text"
                   value={formData.name}
@@ -333,12 +312,13 @@ export default function StockModule() {
                 />
               </div>
 
-              <div className="form-field">
+              <div className="form-group">
                 <label>Categoria</label>
                 <select
                   value={formData.category}
                   onChange={(e) => setFormData({ ...formData, category: e.target.value })}
                 >
+                  <option value="">Selecione...</option>
                   <option value="bebidas">Bebidas</option>
                   <option value="alimentos">Alimentos</option>
                   <option value="utensílios">Utensílios</option>
@@ -347,64 +327,68 @@ export default function StockModule() {
                 </select>
               </div>
 
-              <div className="form-row">
-                <div className="form-field">
-                  <label>Quantidade</label>
-                  <input
-                    type="number"
-                    value={formData.quantity}
-                    onChange={(e) => setFormData({ ...formData, quantity: Number(e.target.value) })}
-                    min="0"
-                  />
-                </div>
-
-                <div className="form-field">
-                  <label>Unidade</label>
-                  <select
-                    value={formData.unit}
-                    onChange={(e) => setFormData({ ...formData, unit: e.target.value })}
-                  >
-                    <option value="un">Unidade</option>
-                    <option value="kg">Quilograma</option>
-                    <option value="l">Litro</option>
-                    <option value="ml">Mililitro</option>
-                    <option value="g">Grama</option>
-                  </select>
-                </div>
+              <div className="form-group">
+                <label>Quantidade</label>
+                <input
+                  type="number"
+                  min="0"
+                  value={formData.quantity}
+                  onChange={(e) => setFormData({ ...formData, quantity: parseInt(e.target.value) || 0 })}
+                />
               </div>
 
-              <div className="form-row">
-                <div className="form-field">
-                  <label>Quantidade Mínima</label>
-                  <input
-                    type="number"
-                    value={formData.minQuantity}
-                    onChange={(e) => setFormData({ ...formData, minQuantity: Number(e.target.value) })}
-                    min="0"
-                  />
-                </div>
-
-                <div className="form-field">
-                  <label>Preço Unitário (R$)</label>
-                  <input
-                    type="number"
-                    value={formData.price}
-                    onChange={(e) => setFormData({ ...formData, price: Number(e.target.value) })}
-                    min="0"
-                    step="0.01"
-                  />
-                </div>
+              <div className="form-group">
+                <label>Unidade</label>
+                <select
+                  value={formData.unit}
+                  onChange={(e) => setFormData({ ...formData, unit: e.target.value })}
+                >
+                  <option value="un">Unidade</option>
+                  <option value="kg">Quilograma</option>
+                  <option value="l">Litro</option>
+                  <option value="ml">Mililitro</option>
+                  <option value="g">Grama</option>
+                </select>
               </div>
-            </div>
 
-            <div className="modal-footer">
-              <button className="secondary-button" onClick={() => setShowModal(false)}>
-                Cancelar
-              </button>
-              <button className="primary-button" onClick={handleSaveItem}>
-                {editingItem ? "Atualizar" : "Adicionar"}
-              </button>
-            </div>
+              <div className="form-group">
+                <label>Quantidade Mínima</label>
+                <input
+                  type="number"
+                  min="0"
+                  value={formData.minQuantity}
+                  onChange={(e) => setFormData({ ...formData, minQuantity: parseInt(e.target.value) || 0 })}
+                />
+              </div>
+
+              <div className="form-group">
+                <label>Preço (R$)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={formData.price}
+                  onChange={(e) => setFormData({ ...formData, price: parseFloat(e.target.value) || 0 })}
+                />
+              </div>
+
+              <div className="modal-actions">
+                <button
+                  className="secondary-button"
+                  type="button"
+                  onClick={() => setShowModal(false)}
+                >
+                  Cancelar
+                </button>
+                <button
+                  className="primary-button"
+                  type="button"
+                  onClick={handleSaveItem}
+                >
+                  Salvar
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

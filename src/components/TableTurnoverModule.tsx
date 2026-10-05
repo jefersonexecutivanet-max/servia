@@ -7,7 +7,7 @@ import {
 } from "lucide-react";
 import { formatCurrency } from "../utils/format";
 import type { TableStatus } from "../types/table";
-import { collection, onSnapshot, query, where } from "firebase/firestore";
+import { collection, doc, onSnapshot, query, serverTimestamp, where, writeBatch } from "firebase/firestore";
 import { db } from "../firebase";
 import { useRestaurantScope } from "../contexts/RestaurantContext";
 
@@ -47,12 +47,14 @@ function formatRequestTime(date?: Date) {
   });
 }
 
-export default function TableTurnoverModule() {
+export default function TableTurnoverModule({ embedded = false }: { embedded?: boolean }) {
   const { restaurantId } = useRestaurantScope();
   const [tables, setTables] = useState<TableMetrics[]>([]);
   const [showAlerts, setShowAlerts] = useState(true);
   const [loading, setLoading] = useState(true);
   const [tableCalls, setTableCalls] = useState<TableCall[]>([]);
+  const [orders, setOrders] = useState<any[]>([]);
+  const [payments, setPayments] = useState<any[]>([]);
   const previousCallCountRef = useRef(0);
 
   // Função para tocar som de notificação
@@ -78,8 +80,8 @@ export default function TableTurnoverModule() {
 
   // Carregar mesas reais do Firestore
   useEffect(() => {
+    setTables([]);
     if (!restaurantId) {
-      setTables([]);
       setLoading(false);
       return;
     }
@@ -106,6 +108,19 @@ export default function TableTurnoverModule() {
     );
 
     return () => unsubscribe();
+  }, [restaurantId]);
+
+  useEffect(() => {
+    setOrders([]);
+    setPayments([]);
+    if (!restaurantId) return;
+    const stopOrders = onSnapshot(query(collection(db, "orders"), where("restaurantId", "==", restaurantId)), (snapshot) => {
+      setOrders(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })));
+    }, (error) => console.error("Erro ao carregar pedidos das mesas:", error));
+    const stopPayments = onSnapshot(query(collection(db, "payments"), where("restaurantId", "==", restaurantId)), (snapshot) => {
+      setPayments(snapshot.docs.map((item) => item.data()));
+    }, (error) => console.error("Erro ao carregar pagamentos:", error));
+    return () => { stopOrders(); stopPayments(); };
   }, [restaurantId]);
 
   // Carregar chamadas de garçom para notificações
@@ -145,13 +160,22 @@ export default function TableTurnoverModule() {
   }, [restaurantId]);
 
   // Métricas calculadas
+  const openOrders = useMemo(() => orders.filter((order) => order.status !== "cancelado" && order.paymentStatus !== "paid"), [orders]);
+  const liveTables = useMemo(() => tables.map((table) => {
+    const tableOrders = openOrders.filter((order) => order.tableNumber === table.number);
+    return tableOrders.length
+      ? { ...table, status: "ocupada" as const, total: tableOrders.reduce((sum, order) => sum + (Number(order.total) || 0), 0) }
+      : table;
+  }), [tables, openOrders]);
+
   const metrics = useMemo(() => {
-    const occupied = tables.filter(t => t.status === "ocupada");
-    const free = tables.filter(t => t.status === "livre");
+    const occupied = liveTables.filter(t => t.status === "ocupada");
+    const free = liveTables.filter(t => t.status === "livre");
     const occupiedCount = occupied.length;
     const freeCount = free.length;
-    const totalTables = tables.length;
-    const totalRevenue = occupied.reduce((sum, t) => sum + t.total, 0);
+    const totalTables = liveTables.length;
+    const totalRevenue = payments.filter((payment) => payment.status === "completed")
+      .reduce((sum, payment) => sum + (Number(payment.amount) || 0), 0);
 
     return {
       occupiedCount,
@@ -159,25 +183,49 @@ export default function TableTurnoverModule() {
       totalTables,
       totalRevenue,
     };
-  }, [tables]);
+  }, [liveTables, payments]);
 
   async function releaseTable(tableNumber: number) {
+    const table = liveTables.find((item) => item.number === tableNumber);
+    if (!table || table.total <= 0) {
+      window.alert("Não há valor registrado para receber nesta mesa.");
+      return;
+    }
+    if (!window.confirm(`Confirmar recebimento de ${formatCurrency(table.total)} e liberar a mesa ${tableNumber}?`)) return;
+    const method = window.prompt("Informe a forma de pagamento: pix, card ou cash", "pix");
+    if (!method || !["pix", "card", "cash"].includes(method)) {
+      window.alert("Forma de pagamento inválida. Use pix, card ou cash.");
+      return;
+    }
     try {
-      // Aqui você atualizaria no Firebase
-      console.log(`Liberando mesa ${tableNumber}`);
-      setTables(currentTables =>
-        currentTables.map(table =>
-          table.number === tableNumber
-            ? { ...table, status: "livre" as TableStatus, total: 0, customer: undefined }
-            : table
-        )
-      );
+      const batch = writeBatch(db);
+      const paymentRef = doc(collection(db, "payments"));
+      batch.set(paymentRef, {
+        restaurantId,
+        tableId: `${restaurantId}_${tableNumber}`,
+        tableNumber,
+        method,
+        amount: table.total,
+        items: openOrders.filter((order) => order.tableNumber === tableNumber)
+          .reduce((count, order) => count + (Array.isArray(order.items) ? order.items.reduce((sum: number, item: any) => sum + (Number(item.quantity) || 0), 0) : 0), 0),
+        status: "completed",
+        createdAt: serverTimestamp(),
+      });
+      openOrders.filter((order) => order.tableNumber === tableNumber).forEach((order) => {
+        batch.update(doc(db, "orders", order.id), { paymentStatus: "paid", paymentId: paymentRef.id, paidAt: serverTimestamp() });
+      });
+      batch.update(doc(db, "tables", `${restaurantId}_${tableNumber}`), { status: "livre", guests: 0, total: 0, customer: "" });
+      await batch.commit();
     } catch (error) {
       console.error("Erro ao liberar mesa:", error);
+      window.alert("Não foi possível confirmar o recebimento e liberar a mesa.");
     }
   }
 
   if (loading) {
+    if (embedded) {
+      return <div className="turnover-embedded-loading">Carregando mesas...</div>;
+    }
     return (
       <div className="turnover-page">
         <div className="module-header">
@@ -192,6 +240,9 @@ export default function TableTurnoverModule() {
   }
 
   if (tables.length === 0) {
+    if (embedded) {
+      return <div className="turnover-embedded-loading">Nenhuma mesa cadastrada. Cadastre mesas no mÃ³dulo Mesas.</div>;
+    }
     return (
       <div className="turnover-page">
         <div className="module-header">
@@ -206,7 +257,8 @@ export default function TableTurnoverModule() {
   }
 
   return (
-    <div className="turnover-page">
+    <div className={`turnover-page${embedded ? " turnover-embedded" : ""}`}>
+      {!embedded && (
       <div className="module-header">
         <div>
           <div className="eyebrow">INTELIGÊNCIA DE SALÃO</div>
@@ -217,7 +269,10 @@ export default function TableTurnoverModule() {
             Otimize o tempo de cada mesa e maximize seu faturamento com alertas em tempo real.
           </p>
         </div>
+        </div>
+      )}
 
+      {!embedded && (
         <div className="module-header-actions">
           <button
             className="secondary-button"
@@ -228,7 +283,7 @@ export default function TableTurnoverModule() {
             {showAlerts ? "Ocultar alertas" : "Mostrar alertas"}
           </button>
         </div>
-      </div>
+      )}
 
       {/* Métricas principais */}
       <div className="turnover-metrics">
@@ -279,7 +334,7 @@ export default function TableTurnoverModule() {
       </div>
 
       {/* Chamadas de Garçom - Notificações para o Gerente */}
-      {showAlerts && tableCalls.filter(c => c.status === "pending").length > 0 && (
+      {!embedded && showAlerts && tableCalls.filter(c => c.status === "pending").length > 0 && (
         <div className="turnover-alerts">
           <div className="alert-header">
             <Bell size={20} />

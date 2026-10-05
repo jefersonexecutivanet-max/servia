@@ -10,6 +10,7 @@ import {
   Timestamp,
   addDoc,
   collection,
+  deleteDoc,
   doc,
   getDoc,
   getDocs,
@@ -47,6 +48,8 @@ beforeEach(async () => {
       setDoc(doc(db, "waiters/waiter-inactive"), { restaurantId: "restaurant-a", name: "Caio", role: "Garçom", employeeNumber: "103", email: "caio@example.com", uid: "auth-caio", active: false }),
       setDoc(doc(db, "waiters/waiter-unclaimed"), { restaurantId: "restaurant-a", name: "Dani", role: "Garçonete", employeeNumber: "104", email: "", uid: "", active: true }),
       setDoc(doc(db, "waiterTables/restaurant-a_12"), { restaurantId: "restaurant-a", tableNumber: 12, waiterId: "waiter-1" }),
+      setDoc(doc(db, "tables/restaurant-a_12"), { restaurantId: "restaurant-a", number: 12, status: "livre" }),
+      setDoc(doc(db, "tables/restaurant-b_15"), { restaurantId: "restaurant-b", number: 15, status: "livre" }),
       setDoc(doc(db, "tableCalls/call-1"), {
         restaurantId: "restaurant-a",
         tableNumber: 12,
@@ -144,10 +147,11 @@ test("garçom só lê e atualiza chamados atribuídos à própria conta", async 
   }));
 });
 
-test("pedido de cliente só pode indicar um garçom ativo", async () => {
+test("pedido de cliente só pode indicar um garçom ativo", async (t) => {
   const db = testEnvironment.unauthenticatedContext().firestore();
   const validOrder = {
     restaurantId: "restaurant-a",
+    tableId: "restaurant-a_12",
     tableNumber: 12,
     waiterId: "waiter-1",
     status: "novo",
@@ -157,19 +161,29 @@ test("pedido de cliente só pode indicar um garçom ativo", async () => {
     createdAt: Timestamp.now(),
   };
 
-  await assertSucceeds(addDoc(collection(db, "orders"), validOrder));
-  await assertSucceeds(addDoc(collection(db, "orders"), {
-    ...validOrder,
-    restaurantId: "restaurant-b",
-    waiterId: "waiter-2",
-  }));
-  await assertFails(addDoc(collection(db, "orders"), {
-    ...validOrder,
-    waiterId: "missing-waiter",
-  }));
-  const unassignedOrder = { ...validOrder };
-  delete unassignedOrder.waiterId;
-  await assertSucceeds(addDoc(collection(db, "orders"), unassignedOrder));
+  await t.test("allows an active waiter in tenant A", async () => {
+    await assertSucceeds(addDoc(collection(db, "orders"), validOrder));
+  });
+  await t.test("allows an active waiter in tenant B only for tenant B orders", async () => {
+    await assertSucceeds(addDoc(collection(db, "orders"), {
+      ...validOrder,
+      restaurantId: "restaurant-b",
+      tableId: "restaurant-b_15",
+      tableNumber: 15,
+      waiterId: "waiter-2",
+    }));
+  });
+  await t.test("rejects a missing waiter", async () => {
+    await assertFails(addDoc(collection(db, "orders"), {
+      ...validOrder,
+      waiterId: "missing-waiter",
+    }));
+  });
+  await t.test("allows a QR order before waiter assignment", async () => {
+    const unassignedOrder = { ...validOrder };
+    delete unassignedOrder.waiterId;
+    await assertSucceeds(addDoc(collection(db, "orders"), unassignedOrder));
+  });
 });
 
 test("cliente pode criar um chamado validado e atribuir a mesa a um garçom ativo", async () => {
@@ -177,6 +191,7 @@ test("cliente pode criar um chamado validado e atribuir a mesa a um garçom ativ
   const batch = writeBatch(db);
   batch.set(doc(db, "tableCalls/client-call"), {
     restaurantId: "restaurant-a",
+    tableId: "restaurant-a_12",
     tableNumber: 12,
     type: "waiter",
     waiterId: "waiter-1",
@@ -186,6 +201,7 @@ test("cliente pode criar um chamado validado e atribuir a mesa a um garçom ativ
   });
   batch.set(doc(db, "waiterTables/restaurant-a_12"), {
     restaurantId: "restaurant-a",
+    tableId: "restaurant-a_12",
     tableNumber: 12,
     waiterId: "waiter-1",
     waiterName: "Ana",
@@ -196,6 +212,7 @@ test("cliente pode criar um chamado validado e atribuir a mesa a um garçom ativ
   const invalidCall = writeBatch(db);
   invalidCall.set(doc(db, "tableCalls/spoofed-call"), {
     restaurantId: "restaurant-a",
+    tableId: "restaurant-a_12",
     tableNumber: 12,
     type: "waiter",
     waiterId: "waiter-1",
@@ -318,6 +335,78 @@ test("dono de restaurante não lê comandas de outro tenant", async () => {
     restaurantId: "restaurant-b",
     name: "Alteração cruzada",
   }));
+});
+
+test("proprietário ativo gerencia dados operacionais apenas no próprio tenant", async () => {
+  const owner = testEnvironment.authenticatedContext("restaurant-a", {
+    email: "owner-a@example.com",
+    email_verified: true,
+  }).firestore();
+
+  await assertSucceeds(setDoc(doc(owner, "stock/stock-a"), {
+    restaurantId: "restaurant-a", name: "Farinha", category: "Insumos", quantity: 10,
+    unit: "kg", minQuantity: 2, price: 5, lastUpdated: Timestamp.now(),
+  }));
+  await assertFails(setDoc(doc(owner, "stock/stock-b"), {
+    restaurantId: "restaurant-b", name: "Item externo", category: "Insumos", quantity: 1,
+    unit: "un", minQuantity: 0, price: 1, lastUpdated: Timestamp.now(),
+  }));
+  await assertSucceeds(setDoc(doc(owner, "cashTransactions/expense-a"), {
+    restaurantId: "restaurant-a", type: "saida", category: "Insumos", description: "Compra",
+    amount: 50, paymentMethod: "pix", createdAt: Timestamp.now(),
+  }));
+  await assertFails(setDoc(doc(owner, "cashTransactions/expense-b"), {
+    restaurantId: "restaurant-b", type: "saida", category: "Insumos", description: "Externo",
+    amount: 50, paymentMethod: "pix", createdAt: Timestamp.now(),
+  }));
+  await assertSucceeds(setDoc(doc(owner, "payments/payment-a"), {
+    restaurantId: "restaurant-a", tableId: "restaurant-a_12", tableNumber: 12, method: "pix", amount: 25,
+    items: 1, status: "completed", createdAt: Timestamp.now(),
+  }));
+  const ownStock = await assertSucceeds(getDocs(query(collection(owner, "stock"), where("restaurantId", "==", "restaurant-a"))));
+  assert.equal(ownStock.size, 1);
+  await assertFails(getDocs(query(collection(owner, "stock"), where("restaurantId", "==", "restaurant-b"))));
+  const ownCash = await assertSucceeds(getDocs(query(collection(owner, "cashTransactions"), where("restaurantId", "==", "restaurant-a"))));
+  assert.equal(ownCash.size, 1);
+  const ownPayments = await assertSucceeds(getDocs(query(collection(owner, "payments"), where("restaurantId", "==", "restaurant-a"))));
+  assert.equal(ownPayments.size, 1);
+  await assertSucceeds(updateDoc(doc(owner, "stock/stock-a"), { quantity: 8 }));
+  await assertSucceeds(updateDoc(doc(owner, "cashTransactions/expense-a"), { description: "Compra registrada" }));
+  await assertSucceeds(deleteDoc(doc(owner, "stock/stock-a")));
+  await assertSucceeds(deleteDoc(doc(owner, "cashTransactions/expense-a")));
+  await assertFails(getDoc(doc(owner, "orders/order-2")));
+  await assertFails(getDoc(doc(owner, "payments/payment-b")));
+});
+
+test("cliente só solicita liberação para uma mesa pertencente ao restaurante", async () => {
+  const db = testEnvironment.unauthenticatedContext().firestore();
+  await assertSucceeds(setDoc(doc(db, "tableReleases/release-a"), {
+    restaurantId: "restaurant-a", tableId: "restaurant-a_12", tableNumber: 12,
+    totalAmount: 25, paymentMethod: "pix", status: "pending", createdAt: Timestamp.now(),
+  }));
+  await assertFails(setDoc(doc(db, "tableReleases/release-spoofed"), {
+    restaurantId: "restaurant-a", tableId: "restaurant-b_15", tableNumber: 15,
+    totalAmount: 25, paymentMethod: "pix", status: "pending", createdAt: Timestamp.now(),
+  }));
+});
+
+test("restaurante novo nÃ£o herda pedidos, pagamentos, caixa ou estoque", async () => {
+  await testEnvironment.withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(), "restaurants/restaurant-empty"), {
+      ownerEmail: "empty@example.com",
+      status: "active",
+      monthlyPaidUntil: Timestamp.fromMillis(Date.now() + 86400000),
+    });
+  });
+  const owner = testEnvironment.authenticatedContext("restaurant-empty", {
+    email: "empty@example.com",
+    email_verified: true,
+  }).firestore();
+
+  for (const name of ["orders", "payments", "cashTransactions", "stock"]) {
+    const snapshot = await assertSucceeds(getDocs(query(collection(owner, name), where("restaurantId", "==", "restaurant-empty"))));
+    assert.equal(snapshot.size, 0, `${name} should be empty for a newly created restaurant`);
+  }
 });
 
 test("assinatura vencida bloqueia dados operacionais mesmo com status antigo active", async () => {

@@ -27,7 +27,7 @@ export function getRestaurantPrinterSettings(): RestaurantPrinterSettings {
       const parsed = JSON.parse(settingsStr);
       return {
         printerEnabled: parsed.printerEnabled ?? true,
-        autoPrintOrders: parsed.autoPrintOrders ?? false,
+        autoPrintOrders: parsed.autoPrintOrders ?? true,
         printerType: parsed.printerType ?? "browser",
         printerIp: parsed.printerIp ?? "",
         printerPort: parsed.printerPort ?? 9100,
@@ -39,7 +39,7 @@ export function getRestaurantPrinterSettings(): RestaurantPrinterSettings {
   }
   return {
     printerEnabled: true,
-    autoPrintOrders: false,
+    autoPrintOrders: true,
     printerType: "browser",
     printerIp: "",
     printerPort: 9100,

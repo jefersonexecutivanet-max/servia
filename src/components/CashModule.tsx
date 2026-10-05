@@ -1,5 +1,8 @@
-import { useState } from "react";
-import { Plus, Edit, Trash2, Search, DollarSign, TrendingUp, TrendingDown, Wallet, CreditCard } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Plus, Edit, Trash2, Search, TrendingUp, TrendingDown, Wallet } from "lucide-react";
+import { collection, deleteDoc, doc, onSnapshot, query, where, addDoc, serverTimestamp, updateDoc } from "firebase/firestore";
+import { db } from "../firebase";
+import { useRestaurantScope } from "../contexts/RestaurantContext";
 
 interface CashTransaction {
   id: string;
@@ -12,60 +15,9 @@ interface CashTransaction {
   reference?: string;
 }
 
-const mockTransactions: CashTransaction[] = [
-  {
-    id: "1",
-    type: "entrada",
-    category: "vendas",
-    description: "Venda do dia - Mesa 5",
-    amount: 198.40,
-    paymentMethod: "cartao",
-    date: new Date(),
-    reference: "Mesa 5",
-  },
-  {
-    id: "2",
-    type: "entrada",
-    category: "vendas",
-    description: "Venda do dia - Mesa 7",
-    amount: 245.80,
-    paymentMethod: "pix",
-    date: new Date(),
-    reference: "Mesa 7",
-  },
-  {
-    id: "3",
-    type: "saida",
-    category: "fornecedor",
-    description: "Compra de ingredientes",
-    amount: 1200.00,
-    paymentMethod: "transferencia",
-    date: new Date(),
-    reference: "Fornecedor ABC",
-  },
-  {
-    id: "4",
-    type: "saida",
-    category: "salário",
-    description: "Pagamento funcionários",
-    amount: 11600.00,
-    paymentMethod: "transferencia",
-    date: new Date(),
-  },
-  {
-    id: "5",
-    type: "entrada",
-    category: "vendas",
-    description: "Venda do dia - Mesa 1",
-    amount: 156.90,
-    paymentMethod: "dinheiro",
-    date: new Date(),
-    reference: "Mesa 1",
-  },
-];
-
 export default function CashModule() {
-  const [transactions, setTransactions] = useState<CashTransaction[]>(mockTransactions);
+  const { restaurantId } = useRestaurantScope();
+  const [transactions, setTransactions] = useState<CashTransaction[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedType, setSelectedType] = useState("todos");
   const [showModal, setShowModal] = useState(false);
@@ -78,6 +30,39 @@ export default function CashModule() {
     paymentMethod: "dinheiro" as "dinheiro" | "cartao" | "pix" | "transferencia",
     reference: "",
   });
+
+  // Carregar transações reais do Firestore
+  useEffect(() => {
+    setTransactions([]);
+    if (!restaurantId) {
+      return;
+    }
+
+    const unsubscribe = onSnapshot(
+      query(collection(db, "cashTransactions"), where("restaurantId", "==", restaurantId)),
+      (snapshot) => {
+        const txs = snapshot.docs.map(doc => {
+          const data = doc.data();
+          return {
+            id: doc.id,
+            type: data.type || "entrada",
+            category: data.category || "",
+            description: data.description || "",
+            amount: data.amount || 0,
+            paymentMethod: data.paymentMethod || "dinheiro",
+            date: data.createdAt?.toDate() || new Date(),
+            reference: data.reference,
+          } as CashTransaction;
+        });
+        setTransactions(txs);
+      },
+      (error) => {
+        console.error("Erro ao carregar transações:", error);
+      }
+    );
+
+    return () => unsubscribe();
+  }, [restaurantId]);
 
   const filteredTransactions = transactions.filter(
     (transaction) =>
@@ -99,7 +84,7 @@ export default function CashModule() {
     setEditingTransaction(null);
     setFormData({
       type: "entrada",
-      category: "vendas",
+      category: "",
       description: "",
       amount: 0,
       paymentMethod: "dinheiro",
@@ -122,106 +107,89 @@ export default function CashModule() {
   };
 
   const handleDeleteTransaction = (id: string) => {
-    if (confirm("Tem certeza que deseja excluir esta transação?")) {
-      setTransactions(transactions.filter((t) => t.id !== id));
+    if (window.confirm("Deseja excluir esta transação?")) {
+      void deleteDoc(doc(db, "cashTransactions", id)).catch((error) => {
+        console.error("Erro ao excluir transação:", error);
+        window.alert("Não foi possível excluir a transação.");
+      });
     }
   };
 
-  const handleSaveTransaction = () => {
-    if (!formData.description.trim() || formData.amount <= 0) return;
-
-    if (editingTransaction) {
-      setTransactions(
-        transactions.map((t) =>
-          t.id === editingTransaction.id
-            ? {
-                ...t,
-                type: formData.type,
-                category: formData.category,
-                description: formData.description,
-                amount: formData.amount,
-                paymentMethod: formData.paymentMethod,
-                reference: formData.reference,
-              }
-            : t
-        )
-      );
-    } else {
-      const newTransaction: CashTransaction = {
-        id: Date.now().toString(),
-        type: formData.type,
-        category: formData.category,
-        description: formData.description,
-        amount: formData.amount,
-        paymentMethod: formData.paymentMethod,
-        date: new Date(),
-        reference: formData.reference,
-      };
-      setTransactions([...transactions, newTransaction]);
+  const handleSaveTransaction = async () => {
+    if (!formData.description || formData.amount <= 0) {
+      alert("Preencha todos os campos obrigatórios");
+      return;
     }
-    setShowModal(false);
-  };
 
-  const getPaymentMethodIcon = (method: string) => {
-    switch (method) {
-      case "cartao":
-        return <CreditCard size={16} />;
-      case "pix":
-        return "💠";
-      case "transferencia":
-        return "🏦";
-      default:
-        return <Wallet size={16} />;
+    if (!restaurantId) {
+      window.alert("Selecione primeiro um restaurante ativo.");
+      return;
+    }
+
+    try {
+      if (editingTransaction) {
+        await updateDoc(doc(db, "cashTransactions", editingTransaction.id), { ...formData });
+      } else {
+        await addDoc(collection(db, "cashTransactions"), { ...formData, restaurantId, createdAt: serverTimestamp() });
+      }
+      setShowModal(false);
+    } catch (error) {
+      console.error("Erro ao salvar transação:", error);
+      window.alert("Não foi possível salvar a transação.");
     }
   };
 
   return (
-    <div className="module-page">
+    <div className="cash-page">
       <div className="module-header">
         <div>
+          <div className="eyebrow">CAIXA</div>
           <h1>Controle Financeiro</h1>
-          <p>Gerencie o fluxo de caixa do restaurante</p>
+          <p>Gerencie entradas, saídas e saldo do caixa em tempo real.</p>
         </div>
-        <button className="primary-button" onClick={handleAddTransaction}>
+
+        <button className="primary-button" type="button" onClick={handleAddTransaction}>
           <Plus size={18} />
           Nova Transação
         </button>
       </div>
 
-      <div className="cash-dashboard">
-        <div className="stat-card success">
-          <div className="stat-icon">
+      {/* Resumo */}
+      <div className="cash-summary">
+        <div className="summary-card">
+          <div className="summary-icon entrada">
             <TrendingUp size={24} />
           </div>
           <div>
-            <span>Total Entradas</span>
-            <strong>R$ {totalEntradas.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}</strong>
+            <strong>{totalEntradas.toFixed(2)}</strong>
+            <span>Entradas</span>
           </div>
         </div>
 
-        <div className="stat-card danger">
-          <div className="stat-icon">
+        <div className="summary-card">
+          <div className="summary-icon saida">
             <TrendingDown size={24} />
           </div>
           <div>
-            <span>Total Saídas</span>
-            <strong>R$ {totalSaidas.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}</strong>
+            <strong>{totalSaidas.toFixed(2)}</strong>
+            <span>Saídas</span>
           </div>
         </div>
 
-        <div className={`stat-card ${saldo >= 0 ? "success" : "danger"}`}>
-          <div className="stat-icon">
-            <DollarSign size={24} />
+        <div className="summary-card">
+          <div className="summary-icon saldo">
+            <Wallet size={24} />
           </div>
           <div>
-            <span>Saldo Atual</span>
-            <strong>R$ {saldo.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}</strong>
+            <strong>{saldo.toFixed(2)}</strong>
+            <span>Saldo</span>
           </div>
         </div>
       </div>
 
-      <div className="filters-bar">
-        <div className="search-input">
+      {/* Filtros */}
+      <div className="cash-filters">
+        <div className="search-box">
           <Search size={18} />
           <input
             type="text"
@@ -231,21 +199,24 @@ export default function CashModule() {
           />
         </div>
 
-        <div className="category-filters">
+        <div className="filter-buttons">
           <button
-            className={`filter-button ${selectedType === "todos" ? "active" : ""}`}
+            className={selectedType === "todos" ? "active" : ""}
+            type="button"
             onClick={() => setSelectedType("todos")}
           >
             Todos
           </button>
           <button
-            className={`filter-button ${selectedType === "entrada" ? "active" : ""}`}
+            className={selectedType === "entrada" ? "active" : ""}
+            type="button"
             onClick={() => setSelectedType("entrada")}
           >
             Entradas
           </button>
           <button
-            className={`filter-button ${selectedType === "saida" ? "active" : ""}`}
+            className={selectedType === "saida" ? "active" : ""}
+            type="button"
             onClick={() => setSelectedType("saida")}
           >
             Saídas
@@ -253,107 +224,92 @@ export default function CashModule() {
         </div>
       </div>
 
-      <div className="transactions-list">
-        {filteredTransactions.map((transaction) => (
-          <div
-            key={transaction.id}
-            className={`transaction-card ${transaction.type}`}
-          >
-            <div className="transaction-left">
+      {/* Lista de transações */}
+      <div className="cash-transactions">
+        {filteredTransactions.length === 0 ? (
+          <div className="empty-state">
+            <Wallet size={48} />
+            <strong>Nenhuma transação registrada</strong>
+            <p>Clique em "Nova Transação" para adicionar movimentações financeiras.</p>
+          </div>
+        ) : (
+          filteredTransactions.map((transaction) => (
+            <div key={transaction.id} className="transaction-item">
               <div className={`transaction-icon ${transaction.type}`}>
-                {transaction.type === "entrada" ? (
-                  <TrendingUp size={20} />
-                ) : (
-                  <TrendingDown size={20} />
-                )}
+                {transaction.type === "entrada" ? <TrendingUp size={20} /> : <TrendingDown size={20} />}
               </div>
 
               <div className="transaction-info">
-                <h3>{transaction.description}</h3>
-                <div className="transaction-meta">
-                  <span className="category-badge">{transaction.category}</span>
-                  {transaction.reference && (
-                    <span className="reference-badge">{transaction.reference}</span>
-                  )}
-                  <span className="date-badge">
-                    {new Date(transaction.date).toLocaleDateString("pt-BR")}
-                  </span>
-                </div>
+                <strong>{transaction.description}</strong>
+                <span>{transaction.category}</span>
+                {transaction.reference && <span>{transaction.reference}</span>}
               </div>
-            </div>
 
-            <div className="transaction-right">
-              <div className="transaction-amount">
-                <strong>
-                  {transaction.type === "entrada" ? "+" : "-"}
-                  R$ {transaction.amount.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+              <div className="transaction-details">
+                <strong className={transaction.type === "entrada" ? "text-green" : "text-red"}>
+                  {transaction.type === "entrada" ? "+" : "-"}R$ {transaction.amount.toFixed(2)}
                 </strong>
-                <div className="payment-method">
-                  {getPaymentMethodIcon(transaction.paymentMethod)}
-                  <span>{transaction.paymentMethod}</span>
-                </div>
+                <span>{transaction.date.toLocaleDateString("pt-BR")}</span>
+                <span>{transaction.paymentMethod}</span>
               </div>
 
               <div className="transaction-actions">
-                <button onClick={() => handleEditTransaction(transaction)} title="Editar">
-                  <Edit size={16} />
+                <button
+                  className="icon-button"
+                  type="button"
+                  onClick={() => handleEditTransaction(transaction)}
+                >
+                  <Edit size={18} />
                 </button>
-                <button onClick={() => handleDeleteTransaction(transaction.id)} title="Excluir">
-                  <Trash2 size={16} />
+                <button
+                  className="icon-button"
+                  type="button"
+                  onClick={() => handleDeleteTransaction(transaction.id)}
+                >
+                  <Trash2 size={18} />
                 </button>
               </div>
             </div>
-          </div>
-        ))}
+          ))
+        )}
       </div>
 
+      {/* Modal */}
       {showModal && (
         <div className="modal-overlay">
-          <div className="modal">
-            <div className="modal-header">
-              <h2>{editingTransaction ? "Editar Transação" : "Nova Transação"}</h2>
-              <button onClick={() => setShowModal(false)}>
-                <Trash2 size={18} />
-              </button>
-            </div>
+          <div className="modal-content">
+            <h2>{editingTransaction ? "Editar Transação" : "Nova Transação"}</h2>
 
-            <div className="modal-body">
-              <div className="form-field">
-                <label>Tipo de Transação</label>
-                <div className="type-selector">
-                  <button
-                    className={`type-option ${formData.type === "entrada" ? "active" : ""}`}
-                    onClick={() => setFormData({ ...formData, type: "entrada" })}
-                  >
-                    <TrendingUp size={18} />
-                    Entrada
-                  </button>
-                  <button
-                    className={`type-option ${formData.type === "saida" ? "active" : ""}`}
-                    onClick={() => setFormData({ ...formData, type: "saida" })}
-                  >
-                    <TrendingDown size={18} />
-                    Saída
-                  </button>
-                </div>
+            <form>
+              <div className="form-group">
+                <label>Tipo</label>
+                <select
+                  value={formData.type}
+                  onChange={(e) => setFormData({ ...formData, type: e.target.value as "entrada" | "saida" })}
+                >
+                  <option value="entrada">Entrada</option>
+                  <option value="saida">Saída</option>
+                </select>
               </div>
 
-              <div className="form-field">
+              <div className="form-group">
                 <label>Categoria</label>
                 <select
                   value={formData.category}
                   onChange={(e) => setFormData({ ...formData, category: e.target.value })}
                 >
+                  <option value="">Selecione...</option>
                   <option value="vendas">Vendas</option>
-                  <option value="pagamento">Pagamento</option>
                   <option value="fornecedor">Fornecedor</option>
                   <option value="salário">Salário</option>
-                  <option value="imposto">Imposto</option>
+                  <option value="aluguel">Aluguel</option>
+                  <option value="luz">Luz</option>
+                  <option value="água">Água</option>
                   <option value="outros">Outros</option>
                 </select>
               </div>
 
-              <div className="form-field">
+              <div className="form-group">
                 <label>Descrição</label>
                 <input
                   type="text"
@@ -363,31 +319,30 @@ export default function CashModule() {
                 />
               </div>
 
-              <div className="form-field">
+              <div className="form-group">
                 <label>Valor (R$)</label>
                 <input
                   type="number"
-                  value={formData.amount}
-                  onChange={(e) => setFormData({ ...formData, amount: Number(e.target.value) })}
-                  min="0"
                   step="0.01"
+                  value={formData.amount}
+                  onChange={(e) => setFormData({ ...formData, amount: parseFloat(e.target.value) || 0 })}
                 />
               </div>
 
-              <div className="form-field">
-                <label>Forma de Pagamento</label>
+              <div className="form-group">
+                <label>Método de Pagamento</label>
                 <select
                   value={formData.paymentMethod}
-                  onChange={(e) => setFormData({ ...formData, paymentMethod: e.target.value as any })}
+                  onChange={(e) => setFormData({ ...formData, paymentMethod: e.target.value as "dinheiro" | "cartao" | "pix" | "transferencia" })}
                 >
                   <option value="dinheiro">Dinheiro</option>
                   <option value="cartao">Cartão</option>
-                  <option value="pix">PIX</option>
+                  <option value="pix">Pix</option>
                   <option value="transferencia">Transferência</option>
                 </select>
               </div>
 
-              <div className="form-field">
+              <div className="form-group">
                 <label>Referência (opcional)</label>
                 <input
                   type="text"
@@ -396,16 +351,24 @@ export default function CashModule() {
                   placeholder="Ex: Mesa 5, Fornecedor ABC"
                 />
               </div>
-            </div>
 
-            <div className="modal-footer">
-              <button className="secondary-button" onClick={() => setShowModal(false)}>
-                Cancelar
-              </button>
-              <button className="primary-button" onClick={handleSaveTransaction}>
-                {editingTransaction ? "Atualizar" : "Adicionar"}
-              </button>
-            </div>
+              <div className="modal-actions">
+                <button
+                  className="secondary-button"
+                  type="button"
+                  onClick={() => setShowModal(false)}
+                >
+                  Cancelar
+                </button>
+                <button
+                  className="primary-button"
+                  type="button"
+                  onClick={handleSaveTransaction}
+                >
+                  Salvar
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

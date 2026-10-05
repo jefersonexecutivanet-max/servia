@@ -511,10 +511,6 @@ function Sidebar({
       icon: Grid3X3,
     },
     {
-      label: "Giro de Mesa",
-      icon: Timer,
-    },
-    {
       label: "Pedidos",
       icon: ClipboardList,
     },
@@ -814,10 +810,35 @@ function Topbar({
 function DashboardContent({
   setActive,
   systemAdmin = false,
+  restaurantId,
 }: {
   setActive: (value: ModuleName) => void;
   systemAdmin?: boolean;
+  restaurantId: string;
 }) {
+  const [dashboardOrders, setDashboardOrders] = useState<any[]>([]);
+  const [dashboardPayments, setDashboardPayments] = useState<any[]>([]);
+  const [dashboardTables, setDashboardTables] = useState<any[]>([]);
+  useEffect(() => {
+    setDashboardOrders([]);
+    setDashboardPayments([]);
+    setDashboardTables([]);
+    if (!restaurantId || systemAdmin) {
+      return;
+    }
+    const stopOrders = onSnapshot(query(collection(db, "orders"), where("restaurantId", "==", restaurantId)), (snapshot) => {
+      setDashboardOrders(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
+        .sort((a: any, b: any) => b.createdAt.toMillis() - a.createdAt.toMillis()));
+    }, (error) => console.error("Erro ao carregar pedidos do dashboard:", error));
+    const stopTables = onSnapshot(query(collection(db, "tables"), where("restaurantId", "==", restaurantId)), (snapshot) => {
+      setDashboardTables(snapshot.docs.map((item) => item.data()).sort((a: any, b: any) => a.number - b.number));
+    }, (error) => console.error("Erro ao carregar mesas do dashboard:", error));
+    const stopPayments = onSnapshot(query(collection(db, "payments"), where("restaurantId", "==", restaurantId)), (snapshot) => {
+      setDashboardPayments(snapshot.docs.map((item) => item.data()));
+    }, (error) => console.error("Erro ao carregar pagamentos do dashboard:", error));
+    return () => { stopOrders(); stopTables(); stopPayments(); };
+  }, [restaurantId, systemAdmin]);
+
   if (systemAdmin) {
     // Dashboard de gestão financeira para administrador
     return (
@@ -860,7 +881,7 @@ function DashboardContent({
             <div>
               <span>Receita Mensal</span>
 
-              <strong>R$ 28.450,00</strong>
+              <strong>R$ 0,00</strong>
 
               <small className="positive">
                 +15,2% vs. mês anterior
@@ -876,7 +897,7 @@ function DashboardContent({
             <div>
               <span>Restaurantes Ativos</span>
 
-              <strong>12</strong>
+              <strong>0</strong>
 
               <small className="positive">
                 +3 novos este mês
@@ -892,7 +913,7 @@ function DashboardContent({
             <div>
               <span>Pagamentos Pendentes</span>
 
-              <strong>R$ 4.500,00</strong>
+              <strong>R$ 0,00</strong>
 
               <small className="neutral">
                 5 aguardando confirmação
@@ -908,7 +929,7 @@ function DashboardContent({
             <div>
               <span>Total de Usuários</span>
 
-              <strong>48</strong>
+              <strong>0</strong>
 
               <small className="positive">
                 +12 novos usuários
@@ -965,6 +986,8 @@ function DashboardContent({
             </div>
 
             <div className="payment-list">
+              <div className="empty-state">Nenhum pagamento registrado.</div>
+              {/*
               <div className="payment-item">
                 <div className="payment-info">
                   <strong>Restaurante ABC</strong>
@@ -1004,6 +1027,7 @@ function DashboardContent({
                   +R$ 100,00
                 </div>
               </div>
+              */}
             </div>
           </div>
         </div>
@@ -1012,54 +1036,24 @@ function DashboardContent({
   }
 
   // Dashboard operacional para restaurantes
-  const occupied = 4;
-  const free = 2;
-  const reserved = 1;
-  const totalOpen = 3.84290;
-
-  const dashboardTables = [
-    { number: 1, status: "ocupada", customer: "Ana", total: 126.9 },
-    { number: 2, status: "livre", customer: "", total: 0 },
-    { number: 3, status: "ocupada", customer: "Mariana", total: 84.5 },
-    { number: 4, status: "reservada", customer: "", total: 0 },
-    { number: 5, status: "ocupada", customer: "João", total: 157.8 },
-    { number: 6, status: "livre", customer: "", total: 0 },
-    { number: 7, status: "ocupada", customer: "Carlos", total: 218.4 },
-    { number: 8, status: "livre", customer: "", total: 0 },
-  ];
-
-  const dashboardOrders = [
-    {
-      id: "#1048",
-      tableNumber: 5,
-      status: "preparando",
-      items: [
-        { productId: "1", name: "Hambúrguer", quantity: 2, price: 32 },
-        { productId: "2", name: "Coca-Cola", quantity: 1, price: 7 },
-      ],
-      total: 78,
-    },
-    {
-      id: "#1047",
-      tableNumber: 2,
-      status: "pronto",
-      items: [
-        { productId: "3", name: "Filé", quantity: 1, price: 59.5 },
-        { productId: "4", name: "Suco natural", quantity: 1, price: 25 },
-      ],
-      total: 64.5,
-    },
-    {
-      id: "#1046",
-      tableNumber: 7,
-      status: "entregue",
-      items: [
-        { productId: "5", name: "Pizza", quantity: 3, price: 69.9 },
-        { productId: "6", name: "Refrigerante", quantity: 2, price: 14.3 },
-      ],
-      total: 142.9,
-    },
-  ];
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const tomorrow = new Date(today);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const ordersToday = dashboardOrders.filter((order) => order.createdAt?.toDate && order.createdAt.toDate() >= today && order.createdAt.toDate() < tomorrow);
+  const openOrders = dashboardOrders.filter((order) => order.status !== "cancelado" && order.paymentStatus !== "paid");
+  const dashboardTablesView = dashboardTables.map((table) => {
+    const tableOrders = openOrders.filter((order) => order.tableNumber === table.number);
+    return tableOrders.length > 0
+      ? { ...table, status: "ocupada", total: tableOrders.reduce((sum, order) => sum + (Number(order.total) || 0), 0) }
+      : table;
+  });
+  const occupied = dashboardTablesView.filter((table) => table.status === "ocupada").length;
+  const free = dashboardTablesView.filter((table) => table.status === "livre").length;
+  const reserved = dashboardTablesView.filter((table) => table.status === "reservada").length;
+  const completedToday = dashboardPayments.filter((payment) => payment.status === "completed" && payment.createdAt?.toDate && payment.createdAt.toDate() >= today && payment.createdAt.toDate() < tomorrow);
+  const salesToday = completedToday.reduce((sum, payment) => sum + (Number(payment.amount) || 0), 0);
+  const openTablesTotal = dashboardTablesView.filter((table) => table.status === "ocupada").reduce((sum, table) => sum + (Number(table.total) || 0), 0);
 
   return (
     <div className="dashboard-page">
@@ -1102,10 +1096,10 @@ function DashboardContent({
           <div>
             <span>Vendas hoje</span>
 
-            <strong>R$ 3.842,90</strong>
+            <strong>{formatCurrency(salesToday)}</strong>
 
-            <small className="positive">
-              +12,4% vs. ontem
+            <small className="neutral">
+              {completedToday.length} venda(s) concluída(s)
             </small>
           </div>
         </div>
@@ -1118,10 +1112,10 @@ function DashboardContent({
           <div>
             <span>Pedidos hoje</span>
 
-            <strong>48</strong>
+            <strong>{ordersToday.length}</strong>
 
             <small className="positive">
-              +8,1% vs. ontem
+              Pedidos registrados hoje
             </small>
           </div>
         </div>
@@ -1135,7 +1129,7 @@ function DashboardContent({
             <span>Mesas ocupadas</span>
 
             <strong>
-              {occupied}/8
+              {occupied}/{dashboardTables.length}
             </strong>
 
             <small>
@@ -1152,12 +1146,10 @@ function DashboardContent({
           <div>
             <span>Comandas abertas</span>
 
-            <strong>
-              {formatCurrency(totalOpen)}
-            </strong>
+            <strong>{openOrders.length}</strong>
 
             <small>
-              4 mesas em atendimento
+              {formatCurrency(openTablesTotal)} em pedidos não pagos
             </small>
           </div>
         </div>
@@ -1184,55 +1176,62 @@ function DashboardContent({
           </div>
 
           <div className="dashboard-tables">
-            {dashboardTables.map((table) => (
-              <button
-                key={table.number}
-                className={getTableClass(
-                  table.status as TableStatus,
-                )}
-                onClick={() => setActive("Mesas")}
-              >
-                <div className="dashboard-table-number">
-                  {table.number}
-                </div>
-
-                <div className="dashboard-table-info">
-                  <strong>
-                    Mesa {table.number}
-                  </strong>
-
-                  {table.status === "ocupada" && (
-                    <>
-                      <span>
-                        {table.customer}
-                      </span>
-
-                      <small>
-                        {formatCurrency(
-                          table.total,
-                        )}
-                      </small>
-                    </>
+            {dashboardTablesView.length === 0 ? (
+              <div className="empty-state">
+                <strong>Nenhuma mesa cadastrada</strong>
+                <p>Cadastre mesas no módulo Mesas para visualizar o mapa.</p>
+              </div>
+            ) : (
+              dashboardTablesView.map((table) => (
+                <button
+                  key={table.number}
+                  className={getTableClass(
+                    table.status as TableStatus,
                   )}
+                  onClick={() => setActive("Mesas")}
+                >
+                  <div className="dashboard-table-number">
+                    {table.number}
+                  </div>
 
-                  {table.status === "livre" && (
-                    <span>Disponível</span>
-                  )}
+                  <div className="dashboard-table-info">
+                    <strong>
+                      Mesa {table.number}
+                    </strong>
 
-                  {table.status === "reservada" && (
-                    <span>Reservada</span>
-                  )}
-                </div>
+                    {table.status === "ocupada" && (
+                      <>
+                        <span>
+                          {table.customer}
+                        </span>
 
-                <span className="dashboard-table-status">
-                  {table.status === "ocupada"
-                    ? "Ocupada"
-                    : table.status === "livre"
-                      ? "Livre"
-                      : "Reserva"}
-                </span>
-              </button>
-            ))}
+                        <small>
+                          {formatCurrency(
+                            table.total,
+                          )}
+                        </small>
+                      </>
+                    )}
+
+                    {table.status === "livre" && (
+                      <span>Disponível</span>
+                    )}
+
+                    {table.status === "reservada" && (
+                      <span>Reservada</span>
+                    )}
+                  </div>
+
+                  <span className="dashboard-table-status">
+                    {table.status === "ocupada"
+                      ? "Ocupada"
+                      : table.status === "livre"
+                        ? "Livre"
+                        : "Reserva"}
+                  </span>
+                </button>
+              ))
+            )}
           </div>
         </section>
 
@@ -1258,43 +1257,50 @@ function DashboardContent({
           </div>
 
           <div className="recent-orders">
-            {dashboardOrders.map((order) => (
-              <div
-                className="recent-order"
-                key={order.id}
-              >
-                <div className="order-number">
-                  {order.id}
-                </div>
-
-                <div className="order-main">
-                  <strong>
-                    Mesa {order.tableNumber} ·{" "}
-                    {order.items[0]?.name || "Cliente"}
-                  </strong>
-
-                  <span>{order.items.map((i: any) => `${i.quantity}x ${i.name}`).join(" + ")}</span>
-                </div>
-
-                <div className="order-right">
-                  <strong>
-                    {formatCurrency(
-                      order.total,
-                    )}
-                  </strong>
-
-                  <span
-                    className={getStatusClass(
-                      order.status,
-                    )}
-                  >
-                    {order.status === "preparando" ? "Preparando" :
-                     order.status === "pronto" ? "Pronto" :
-                     order.status === "entregue" ? "Entregue" : order.status}
-                  </span>
-                </div>
+            {dashboardOrders.length === 0 ? (
+              <div className="empty-state">
+                <strong>Nenhum pedido registrado</strong>
+                <p>Os pedidos aparecerão aqui quando forem criados.</p>
               </div>
-            ))}
+            ) : (
+              dashboardOrders.map((order) => (
+                <div
+                  className="recent-order"
+                  key={order.id}
+                >
+                  <div className="order-number">
+                    {order.id}
+                  </div>
+
+                  <div className="order-main">
+                    <strong>
+                      Mesa {order.tableNumber} ·{" "}
+                      {order.items[0]?.name || "Cliente"}
+                    </strong>
+
+                    <span>{order.items.map((i: any) => `${i.quantity}x ${i.name}`).join(" + ")}</span>
+                  </div>
+
+                  <div className="order-right">
+                    <strong>
+                      {formatCurrency(
+                        order.total,
+                      )}
+                    </strong>
+
+                    <span
+                      className={getStatusClass(
+                        order.status,
+                      )}
+                    >
+                      {order.status === "preparando" ? "Preparando" :
+                       order.status === "pronto" ? "Pronto" :
+                       order.status === "entregue" ? "Entregue" : order.status}
+                    </span>
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </section>
       </div>
@@ -1531,6 +1537,7 @@ function AdminApplication({
         <DashboardContent
           setActive={setActive}
           systemAdmin={systemAdmin}
+          restaurantId={restaurantId}
         />
       );
     }
@@ -1548,7 +1555,7 @@ function AdminApplication({
     }
 
     if (active === "Atendimento") {
-      return <WaiterModule user={user} />;
+      return <WaiterModule user={user} showTurnover />;
     }
 
     if (active === "Cardápio") {

@@ -239,6 +239,7 @@ export default function CustomerTable({
 
       await addDoc(collection(db, "orders"), {
         restaurantId,
+        tableId: `${restaurantId}_${tableNumber}`,
         tableNumber,
         ...(currentWaiterId ? { waiterId: currentWaiterId } : {}),
         status: "novo",
@@ -299,6 +300,7 @@ export default function CustomerTable({
       const assignmentRef = doc(db, "waiterTables", `${restaurantId}_${tableNumber}`);
       batch.set(requestRef, {
         restaurantId,
+        tableId: `${restaurantId}_${tableNumber}`,
         tableNumber,
         type: requestType,
         waiterId: selectedWaiter.id,
@@ -308,6 +310,7 @@ export default function CustomerTable({
       });
       batch.set(assignmentRef, {
         restaurantId,
+        tableId: `${restaurantId}_${tableNumber}`,
         tableNumber,
         waiterId: selectedWaiter.id,
         waiterName: selectedWaiter.name,
@@ -347,24 +350,10 @@ export default function CustomerTable({
     setMessage("");
 
     try {
-      // Aqui você integraria com o gateway de pagamento real
-      // Por enquanto, vamos simular o processo
-      await new Promise(resolve => setTimeout(resolve, 2000));
-
-      // Registrar pagamento no Firebase
-      await addDoc(collection(db, "payments"), {
-        restaurantId,
-        tableNumber,
-        method,
-        amount: total,
-        items: cartItems.length,
-        status: "completed",
-        createdAt: serverTimestamp(),
-      });
-
-      // Solicitar liberação da mesa
+      // Sem integração com gateway, a solicitação não confirma que houve pagamento.
       await addDoc(collection(db, "tableReleases"), {
         restaurantId,
+        tableId: `${restaurantId}_${tableNumber}`,
         tableNumber,
         totalAmount: total,
         paymentMethod: method,
@@ -378,7 +367,7 @@ export default function CustomerTable({
       setCartOpen(false);
 
       showMessage(
-        "Pagamento realizado! Sua mesa será liberada em breve.",
+        "Solicitação enviada. A confirmação do pagamento depende do estabelecimento.",
       );
     } catch (error) {
       console.error("Erro ao processar pagamento:", error);
