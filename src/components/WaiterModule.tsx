@@ -123,13 +123,35 @@ export default function WaiterModule({
   const [error, setError] = useState("");
   const [updatingId, setUpdatingId] = useState("");
   const [orders, setOrders] = useState<TableOrder[]>([]);
-  const previousCallCountRef = useRef(0);
-  const previousBillCountRef = useRef(0);
+  const seenRequestsRef = useRef(new Set<string>());
+  const loadedRequestCollectionsRef = useRef(new Set<RequestCollection>());
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const [alertsEnabled, setAlertsEnabled] = useState(false);
+  const [newAlert, setNewAlert] = useState("");
 
   // Função para tocar som de notificação
-  const playNotificationSound = () => {
+  async function enableAlerts() {
     try {
-      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const AudioContextConstructor = window.AudioContext
+        || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (AudioContextConstructor) {
+        audioContextRef.current ??= new AudioContextConstructor();
+        await audioContextRef.current.resume();
+      }
+      if ("Notification" in window && Notification.permission === "default") {
+        await Notification.requestPermission();
+      }
+      setAlertsEnabled(true);
+    } catch (enableError) {
+      console.error("Erro ao ativar alertas:", enableError);
+      setAlertsEnabled(false);
+    }
+  }
+
+  function playNotificationSound() {
+    const audioContext = audioContextRef.current;
+    if (!audioContext || audioContext.state !== "running") return;
+    try {
       const oscillator = audioContext.createOscillator();
       const gainNode = audioContext.createGain();
       
@@ -145,7 +167,22 @@ export default function WaiterModule({
     } catch (error) {
       console.error("Erro ao tocar som:", error);
     }
-  };
+  }
+
+  function notifyNewRequest(request: ServiceRequest) {
+    const title = request.type === "bill" ? "Pedido de conta" : "Chamado de garÃ§om";
+    const body = `Mesa ${request.tableNumber} precisa de atendimento.`;
+    setNewAlert(`${title}: ${body}`);
+    window.setTimeout(() => setNewAlert(""), 8000);
+    playNotificationSound();
+    if ("Notification" in window && Notification.permission === "granted") {
+      try {
+        new Notification(title, { body, tag: `${request.collectionName}-${request.id}` });
+      } catch (notificationError) {
+        console.error("Erro ao exibir notificaÃ§Ã£o:", notificationError);
+      }
+    }
+  }
 
   useEffect(() => {
     if (!restaurantId) {
@@ -179,15 +216,21 @@ export default function WaiterModule({
       requestsQuery("tableCalls"),
       (snapshot) => {
         const newCalls = snapshot.docs.map((item) => convertRequest(item, "tableCalls"));
-        const openCalls = newCalls.filter(c => c.status === "pending");
-        
-        // Tocar som se houver novos chamados
-        if (openCalls.length > previousCallCountRef.current && previousCallCountRef.current > 0) {
-          playNotificationSound();
+        const firstSnapshot = !loadedRequestCollectionsRef.current.has("tableCalls");
+        if (firstSnapshot) {
+          snapshot.docs.forEach((item) => seenRequestsRef.current.add(`tableCalls/${item.id}`));
+          loadedRequestCollectionsRef.current.add("tableCalls");
+        } else {
+          snapshot.docChanges().forEach((change) => {
+            const requestKey = `tableCalls/${change.doc.id}`;
+            if (change.type === "added" && !seenRequestsRef.current.has(requestKey)) {
+              const request = convertRequest(change.doc, "tableCalls");
+              if (request.status === "pending") notifyNewRequest(request);
+            }
+            seenRequestsRef.current.add(requestKey);
+          });
         }
-        
         setTableCalls(newCalls);
-        previousCallCountRef.current = openCalls.length;
         markLoaded("tableCalls");
         setError("");
       },
@@ -202,15 +245,21 @@ export default function WaiterModule({
       requestsQuery("billRequests"),
       (snapshot) => {
         const newBills = snapshot.docs.map((item) => convertRequest(item, "billRequests"));
-        const openBills = newBills.filter(b => b.status === "pending");
-        
-        // Tocar som se houver novos pedidos de conta
-        if (openBills.length > previousBillCountRef.current && previousBillCountRef.current > 0) {
-          playNotificationSound();
+        const firstSnapshot = !loadedRequestCollectionsRef.current.has("billRequests");
+        if (firstSnapshot) {
+          snapshot.docs.forEach((item) => seenRequestsRef.current.add(`billRequests/${item.id}`));
+          loadedRequestCollectionsRef.current.add("billRequests");
+        } else {
+          snapshot.docChanges().forEach((change) => {
+            const requestKey = `billRequests/${change.doc.id}`;
+            if (change.type === "added" && !seenRequestsRef.current.has(requestKey)) {
+              const request = convertRequest(change.doc, "billRequests");
+              if (request.status === "pending") notifyNewRequest(request);
+            }
+            seenRequestsRef.current.add(requestKey);
+          });
         }
-        
         setBillRequests(newBills);
-        previousBillCountRef.current = openBills.length;
         markLoaded("billRequests");
         setError("");
       },
@@ -303,10 +352,17 @@ export default function WaiterModule({
           <h1>Atendimento</h1>
           <p>Chamados e pedidos de conta das mesas.</p>
         </div>
-        <div className="waiter-live-indicator">
-          <span /> Ao vivo
+        <div className="waiter-header-actions">
+          <button className="waiter-alert-toggle" type="button" onClick={() => void enableAlerts()}>
+            {alertsEnabled ? "Avisos ativados" : "Ativar avisos e som"}
+          </button>
+          <div className="waiter-live-indicator">
+            <span /> Ao vivo
+          </div>
         </div>
       </header>
+
+      {newAlert && <div className="waiter-new-alert" role="alert">{newAlert}</div>}
 
       <div className="waiter-stats">
         <div className="waiter-stat waiter-stat-open">
