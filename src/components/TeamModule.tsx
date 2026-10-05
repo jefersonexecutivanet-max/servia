@@ -41,7 +41,7 @@ interface TeamMember {
 
 type WaiterForm = Pick<TeamMember, "name" | "role" | "employeeNumber" | "email"> & { temporaryPassword: string };
 
-const waiterRoles = ["Garçom", "Garçonete", "Chefe de salão"];
+const employeeRoles = ["Funcionário", "Garçom", "Garçonete", "Chefe de salão"];
 
 function convertMember(
   snapshot: QueryDocumentSnapshot<DocumentData>,
@@ -49,8 +49,8 @@ function convertMember(
   const data = snapshot.data();
   return {
     id: snapshot.id,
-    name: String(data.name || "Garçom"),
-    role: String(data.role || "Garçom"),
+    name: String(data.name || "Funcionário"),
+    role: String(data.role || "Funcionário"),
     employeeNumber: String(data.employeeNumber || ""),
     status: data.active === false ? "inativo" : "ativo",
     uid: String(data.uid || ""),
@@ -65,7 +65,7 @@ function convertMember(
 
 const emptyForm: WaiterForm = {
   name: "",
-  role: waiterRoles[0],
+  role: employeeRoles[0],
   employeeNumber: "",
   email: "",
   temporaryPassword: "",
@@ -107,7 +107,7 @@ export default function TeamModule() {
         setError("");
       },
       (snapshotError) => {
-        console.error("Erro ao carregar garçons:", snapshotError);
+        console.error("Erro ao carregar funcionários:", snapshotError);
         setError("Não foi possível carregar a equipe.");
         setLoading(false);
       },
@@ -214,7 +214,7 @@ export default function TeamModule() {
           active: editingMember.status === "ativo",
         });
         await batch.commit();
-        setNotice("Cadastro do garçom atualizado.");
+        setNotice("Cadastro do funcionário atualizado.");
       } else {
         const normalizedEmail = formData.email.trim().toLowerCase();
         await signOut(restaurantProvisioningAuth).catch(() => undefined);
@@ -265,7 +265,7 @@ export default function TeamModule() {
       }
       setShowModal(false);
     } catch (saveError) {
-      console.error("Erro ao salvar garçom:", saveError);
+      console.error("Erro ao salvar funcionário:", saveError);
       const code = typeof saveError === "object" && saveError && "code" in saveError
         ? String((saveError as { code: string }).code)
         : "";
@@ -311,10 +311,10 @@ export default function TeamModule() {
       batch.delete(doc(db, "waiterDirectory", member.id));
       if (member.uid) batch.delete(doc(db, "restaurantStaff", member.uid));
       await batch.commit();
-      setNotice("Acesso do garçom removido.");
+      setNotice("Acesso do funcionário removido.");
     } catch (deleteError) {
-      console.error("Erro ao remover garçom:", deleteError);
-      setError("Não foi possível remover este garçom.");
+      console.error("Erro ao remover funcionário:", deleteError);
+      setError("Não foi possível remover este funcionário.");
     } finally {
       setBusy(false);
     }
@@ -339,7 +339,7 @@ export default function TeamModule() {
       setNotice(member.status === "ativo" ? "Acesso desativado." : "Acesso ativado.");
     } catch (statusError) {
       console.error("Erro ao alterar acesso:", statusError);
-      setError("Não foi possível alterar o acesso deste garçom.");
+      setError("Não foi possível alterar o acesso deste funcionário.");
     } finally {
       setBusy(false);
     }
@@ -358,12 +358,12 @@ export default function TeamModule() {
     <div className="module-page team-page">
       <div className="module-header">
         <div>
-          <h1>Garçons</h1>
+          <h1>Funcionários</h1>
           <p>Cadastre acessos e gerencie o atendimento do salão.</p>
         </div>
         <button className="primary-button" type="button" onClick={handleAddMember}>
           <Plus size={18} />
-          Cadastrar garçom
+          Cadastrar funcionário
         </button>
       </div>
 
@@ -373,7 +373,7 @@ export default function TeamModule() {
       <div className="team-dashboard">
         <div className="stat-card">
           <div className="stat-icon"><Users size={24} /></div>
-          <div><span>Garçons ativos</span><strong>{activeMembers.length}</strong></div>
+          <div><span>Funcionários ativos</span><strong>{activeMembers.length}</strong></div>
         </div>
         <div className="stat-card">
           <div className="stat-icon"><QrCode size={24} /></div>
@@ -390,7 +390,7 @@ export default function TeamModule() {
           <Search size={18} />
           <input
             type="search"
-            placeholder="Buscar garçom..."
+            placeholder="Buscar funcionário..."
             value={searchTerm}
             onChange={(event) => setSearchTerm(event.target.value)}
           />
@@ -401,7 +401,7 @@ export default function TeamModule() {
         <div className="team-empty">Carregando equipe...</div>
       ) : filteredMembers.length === 0 ? (
         <div className="team-empty">
-          {searchTerm ? "Nenhum garçom encontrado." : "Cadastre o primeiro garçom para gerar o QR de acesso."}
+          {searchTerm ? "Nenhum funcionário encontrado." : "Cadastre o primeiro funcionário para gerar o QR de acesso."}
         </div>
       ) : (
         <div className="team-grid">
@@ -445,7 +445,7 @@ export default function TeamModule() {
         <div className="modal-overlay" onClick={() => setShowModal(false)}>
           <div className="modal" role="dialog" aria-modal="true" aria-labelledby="waiter-form-title" onClick={(event) => event.stopPropagation()}>
             <div className="modal-header">
-              <h2 id="waiter-form-title">{editingMember ? "Editar garçom" : "Cadastrar garçom"}</h2>
+              <h2 id="waiter-form-title">{editingMember ? "Editar funcionário" : "Cadastrar funcionário"}</h2>
               <button type="button" onClick={() => setShowModal(false)} aria-label="Fechar"><X size={18} /></button>
             </div>
             <div className="modal-body">
@@ -456,7 +456,7 @@ export default function TeamModule() {
               <div className="form-field">
                 <label htmlFor="waiter-role">Função</label>
                 <select id="waiter-role" value={formData.role} onChange={(event) => setFormData({ ...formData, role: event.target.value })}>
-                  {waiterRoles.map((role) => <option key={role} value={role}>{role}</option>)}
+                  {employeeRoles.map((role) => <option key={role} value={role}>{role}</option>)}
                 </select>
               </div>
               <div className="form-field">
@@ -492,9 +492,9 @@ export default function TeamModule() {
           <div className="modal qr-modal waiter-activation-modal" role="dialog" aria-modal="true" aria-labelledby="waiter-qr-title" onClick={(event) => event.stopPropagation()}>
             <button className="modal-close" type="button" onClick={() => setActivationUrl("")} aria-label="Fechar QR"><X size={20} /></button>
             <div className="modal-title">
-              <span>ACESSO DO GARÇOM</span>
+              <span>ACESSO DO FUNCIONÁRIO</span>
               <h2 id="waiter-qr-title">{activationName}</h2>
-              <p>Entregue o QR e a senha temporária ao membro. Ao entrar, ele será solicitado a criar uma senha pessoal.</p>
+              <p>Entregue o QR e a senha temporária ao funcionário. Ao entrar, ele será solicitado a criar uma senha pessoal.</p>
             </div>
             <div className="qr-display"><QRCodeCanvas value={activationUrl} size={220} level="H" includeMargin /></div>
             <div className="activation-expiry">QR individual para a conta de {activationEmail}</div>

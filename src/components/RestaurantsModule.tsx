@@ -334,8 +334,8 @@ export default function RestaurantsModule({
               <div className="restaurant-row-icon"><Store size={20} /></div>
               <div className="restaurant-row-main">
                 <strong>{restaurant.name}</strong>
-                <span>CNPJ {restaurant.cnpj} · {restaurant.ownerEmail}</span>
-                <small>Responsável: {restaurant.ownerName || "Não informado"}</small>
+                <span>CNPJ {restaurant.cnpj} · Gerente: {restaurant.ownerEmail}</span>
+                <small>Gerente: {restaurant.ownerName || "Não informado"}</small>
               </div>
               <div className="restaurant-billing">
                 <strong>{accessIsCurrent ? "Pix confirmado" : "Aguardando Pix"}</strong>
@@ -350,9 +350,14 @@ export default function RestaurantsModule({
                     Abrir painel
                   </button>
                 ) : (
-                  <button className="primary-button" type="button" disabled={busy} onClick={() => void confirmPayment(restaurant)}>
-                    <Check size={17} /> Confirmar Pix {restaurant.monthlyPaidUntil ? "mensal" : "e liberar"}
-                  </button>
+                  <>
+                    <button className="primary-button" type="button" disabled={busy} onClick={() => void confirmPayment(restaurant)}>
+                      <Check size={17} /> Confirmar Pix {restaurant.monthlyPaidUntil ? "mensal" : "e liberar"}
+                    </button>
+                    <button className="secondary-button" type="button" onClick={() => onOpenRestaurant(restaurant.id)}>
+                      Testar sistema
+                    </button>
+                  </>
                 )}
               </div>
             </article>
@@ -366,7 +371,7 @@ export default function RestaurantsModule({
         <div className="modal-overlay" onClick={() => !busy && setShowForm(false)}>
           <form className="modal restaurant-create-modal" onSubmit={(event) => void createRestaurant(event)} onClick={(event) => event.stopPropagation()}>
             <div className="modal-header">
-              <div><span className="eyebrow">NOVO CADASTRO</span><h2>Criar conta do restaurante</h2></div>
+              <div><span className="eyebrow">NOVO CADASTRO</span><h2>Criar restaurante e usuário Gerente</h2></div>
               <button type="button" onClick={() => setShowForm(false)} aria-label="Fechar" disabled={busy}><X size={18} /></button>
             </div>
             <div className="modal-body">
@@ -379,15 +384,15 @@ export default function RestaurantsModule({
                 <input value={form.cnpj} onChange={(event) => setForm({ ...form, cnpj: event.target.value })} placeholder="00.000.000/0000-00" required />
               </div>
               <div className="form-field">
-                <label>Responsável</label>
+                <label>Nome do gerente</label>
                 <input value={form.ownerName} onChange={(event) => setForm({ ...form, ownerName: event.target.value })} required />
               </div>
               <div className="form-field">
-                <label>Usuário (e-mail)</label>
+                <label>E-mail do gerente</label>
                 <input type="email" value={form.ownerEmail} onChange={(event) => setForm({ ...form, ownerEmail: event.target.value })} required />
               </div>
               <div className="form-field">
-                <label>Senha inicial</label>
+                <label>Senha inicial do gerente</label>
                 <input type="password" autoComplete="new-password" minLength={6} value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} required />
               </div>
               <div className="restaurant-pix-box">
@@ -403,7 +408,7 @@ export default function RestaurantsModule({
             <div className="modal-footer">
               <button className="secondary-button" type="button" onClick={() => setShowForm(false)} disabled={busy}>Cancelar</button>
               <button className="primary-button" type="submit" disabled={busy}>
-                <UserRoundPlus size={18} /> {busy ? "Criando conta..." : "Criar conta e solicitar Pix"}
+                <UserRoundPlus size={18} /> {busy ? "Criando conta..." : "Criar usuário gerente e solicitar Pix"}
               </button>
             </div>
           </form>
@@ -413,10 +418,10 @@ export default function RestaurantsModule({
       {lastCredentials && (
         <div className="modal-overlay" onClick={() => setLastCredentials(null)}>
           <section className="modal restaurant-credentials-modal" role="dialog" aria-modal="true" aria-labelledby="restaurant-credentials-title" onClick={(event) => event.stopPropagation()}>
-            <div className="modal-header"><h2 id="restaurant-credentials-title">Conta criada · aguardando Pix</h2><button type="button" onClick={() => setLastCredentials(null)} aria-label="Fechar"><X size={18} /></button></div>
+            <div className="modal-header"><h2 id="restaurant-credentials-title">Usuário Gerente criado · aguardando Pix</h2><button type="button" onClick={() => setLastCredentials(null)} aria-label="Fechar"><X size={18} /></button></div>
             <div className="modal-body">
-              <p>Compartilhe as credenciais iniciais com o responsável. O acesso ficará bloqueado até você confirmar o pagamento.</p>
-              <div className="restaurant-credential-value"><span>Usuário</span><strong>{lastCredentials.email}</strong></div>
+              <p>O usuário Gerente já foi criado. Compartilhe estas credenciais com o gerente. O acesso ficará bloqueado até você confirmar o pagamento.</p>
+              <div className="restaurant-credential-value"><span>Usuário Gerente (e-mail)</span><strong>{lastCredentials.email}</strong></div>
               <div className="restaurant-credential-value"><span>Senha inicial</span><strong>{lastCredentials.password}</strong></div>
               <div className="restaurant-pix-box"><strong>Pix a receber: {formatCurrency(SETUP_FEE + MONTHLY_FEE)}</strong><span>Chave Pix: {PIX_KEY}</span></div>
             </div>

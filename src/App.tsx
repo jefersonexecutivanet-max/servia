@@ -78,7 +78,7 @@ type ModuleName =
   | "Cardápio"
   | "Cozinha"
   | "Estoque"
-  | "Equipe"
+  | "Funcionários"
   | "Caixa"
   | "Relatórios"
   | "Configurações";
@@ -546,7 +546,7 @@ function Sidebar({
       icon: Box,
     },
     {
-      label: "Equipe",
+      label: "Funcionários",
       icon: Users,
     },
     {
@@ -1444,10 +1444,10 @@ function ModulePage({
         "Controle de estoque.",
     },
 
-    Equipe: {
+    Funcionários: {
       icon: Users,
       description:
-        "Garçons e funcionários.",
+        "Cadastre funcionários e gerencie os acessos por QR code.",
     },
 
     Caixa: {
@@ -1583,7 +1583,7 @@ function AdminApplication({
       return <StockModule />;
     }
 
-    if (active === "Equipe") {
+    if (active === "Funcionários") {
       return <TeamModule />;
     }
 
