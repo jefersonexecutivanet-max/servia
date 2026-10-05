@@ -48,6 +48,17 @@ function summarize(payments: RecordData[]): Summary {
   };
 }
 
+function csvValue(value: unknown): string {
+  let text = String(value ?? "");
+  if (/^[\t\r=+@-]/.test(text)) text = `'${text}`;
+  return `"${text.replace(/"/g, '""')}"`;
+}
+
+function formatDate(value: unknown): string {
+  const date = asDate(value);
+  return date ? date.toLocaleString("pt-BR") : "";
+}
+
 const periodOptions: Array<{ value: Period; label: string }> = [
   { value: "hoje", label: "Hoje" },
   { value: "semana", label: "Esta Semana" },
@@ -147,11 +158,54 @@ export default function ReportsModule() {
   const ordersGrowth = growth(currentData.orders, previousData.orders);
   const money = (amount: number) => `R$ ${amount.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`;
 
+  function exportReport() {
+    const rows: unknown[][] = [
+      ["RELATÓRIO SERVIA", "Período", periodOptions.find((period) => period.value === selectedPeriod)?.label || selectedPeriod],
+      ["RELATÓRIO SERVIA", "De", currentRange.start.toLocaleDateString("pt-BR")],
+      ["RELATÓRIO SERVIA", "Até", new Date(currentRange.end.getTime() - 1).toLocaleDateString("pt-BR")],
+      [],
+      ["RESUMO", "Vendas confirmadas", currentData.revenue.toFixed(2)],
+      ["RESUMO", "Pagamentos confirmados", currentData.orders],
+      ["RESUMO", "Ticket médio", currentData.averageTicket.toFixed(2)],
+      ["RESUMO", "Despesas registradas", currentExpenses.toFixed(2)],
+      ["RESUMO", "Resultado estimado", estimatedResult.toFixed(2)],
+      [],
+      ["PAGAMENTOS", "Data", "Mesa", "Forma de pagamento", "Valor", "Clientes"],
+      ...currentPayments.map((payment) => ["PAGAMENTO", formatDate(payment.createdAt), payment.tableNumber ?? "", payment.method ?? payment.paymentMethod ?? "", Number(payment.amount) || 0, Number(payment.guests) || 0]),
+      [],
+      ["DESPESAS", "Data", "Descrição", "Categoria", "Valor", "Forma de pagamento"],
+      ...cashTransactions
+        .filter((item) => item.type === "saida" && belongsTo(item, currentRange))
+        .map((item) => ["DESPESA", formatDate(item.createdAt), item.description || "", item.category || "", Number(item.amount) || 0, item.paymentMethod || ""]),
+      [],
+      ["PRODUTOS VENDIDOS", "Produto", "Quantidade", "Faturamento"],
+      ...topProducts.map((product) => ["PRODUTO", product.name, product.quantity, product.revenue.toFixed(2)]),
+      [],
+      ["PEDIDOS PAGOS", "Data", "Mesa", "Itens", "Total"],
+      ...completedOrders.map((order) => [
+        "PEDIDO",
+        formatDate(order.createdAt),
+        order.tableNumber ?? "",
+        (Array.isArray(order.items) ? order.items : []).map((item: RecordData) => `${Number(item.quantity) || 0}x ${item.name || "Produto"}`).join(" | "),
+        (Array.isArray(order.items) ? order.items : []).reduce((sum: number, item: RecordData) => sum + (Number(item.price) || 0) * (Number(item.quantity) || 0), 0).toFixed(2),
+      ]),
+    ];
+    const csv = `\uFEFF${rows.map((row) => row.map(csvValue).join(";")).join("\r\n")}`;
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `servia-relatorio-${selectedPeriod}-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  }
+
   return (
     <div className="module-page">
       <div className="module-header">
         <div><h1>Relatórios e Indicadores</h1><p>Análise do desempenho registrado no restaurante</p></div>
-        <button className="primary-button" onClick={() => window.alert("Exportação de relatórios ainda não está disponível.")}><Download size={18} />Exportar Relatório</button>
+        <button className="primary-button" type="button" onClick={exportReport}><Download size={18} />Exportar Relatório</button>
       </div>
 
       <div className="period-selector">
