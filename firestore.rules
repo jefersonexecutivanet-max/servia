@@ -84,6 +84,24 @@ service cloud.firestore {
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['mustChangePassword']);
     }
 
+    function isWaiterAssignedToTable(restaurantId, tableId) {
+      return signedIn()
+        && exists(/databases/$(database)/documents/restaurantStaff/$(request.auth.uid))
+        && get(/databases/$(database)/documents/restaurantStaff/$(request.auth.uid)).data.active == true
+        && get(/databases/$(database)/documents/restaurantStaff/$(request.auth.uid)).data.restaurantId == restaurantId
+        && exists(/databases/$(database)/documents/waiterTables/$(tableId))
+        && get(/databases/$(database)/documents/waiterTables/$(tableId)).data.restaurantId == restaurantId
+        && get(/databases/$(database)/documents/waiterTables/$(tableId)).data.waiterId
+          == get(/databases/$(database)/documents/restaurantStaff/$(request.auth.uid)).data.waiterId;
+    }
+
+    function validWaiterOrderDelivery() {
+      return isWaiterAssignedToTable(resource.data.restaurantId, resource.data.tableId)
+        && resource.data.status == 'pronto'
+        && request.resource.data.status == 'entregue'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']);
+    }
+
     function validCustomerOrder() {
       let data = request.resource.data;
       let tablePath = /databases/$(database)/documents/tables/$(data.tableId);
@@ -239,8 +257,9 @@ service cloud.firestore {
         || isActiveRestaurantOwner(resource.data.restaurantId)
         || isWaiterFor(resource.data.waiterId)
         || isActiveTeamMemberForRestaurant(resource.data.restaurantId);
-      allow update: if canManageRestaurant(resource.data.restaurantId)
-        && request.resource.data.restaurantId == resource.data.restaurantId;
+      allow update: if (canManageRestaurant(resource.data.restaurantId)
+        && request.resource.data.restaurantId == resource.data.restaurantId)
+        || validWaiterOrderDelivery();
       allow delete: if canManageRestaurant(resource.data.restaurantId);
     }
 

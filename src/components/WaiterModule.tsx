@@ -16,6 +16,7 @@ import {
   query,
   serverTimestamp,
   setDoc,
+  updateDoc,
   where,
   writeBatch,
   type DocumentData,
@@ -136,6 +137,8 @@ export default function WaiterModule({
   const [ordersAccessReady, setOrdersAccessReady] = useState(false);
   const seenRequestsRef = useRef(new Set<string>());
   const loadedRequestCollectionsRef = useRef(new Set<RequestCollection>());
+  const readyOrderIdsRef = useRef(new Set<string>());
+  const readyOrdersInitializedRef = useRef(false);
   const audioContextRef = useRef<AudioContext | null>(null);
   const [alertsEnabled, setAlertsEnabled] = useState(false);
   const [newAlert, setNewAlert] = useState("");
@@ -191,6 +194,21 @@ export default function WaiterModule({
         new Notification(title, { body, tag: `${request.collectionName}-${request.id}` });
       } catch (notificationError) {
         console.error("Erro ao exibir notificaÃ§Ã£o:", notificationError);
+      }
+    }
+  }
+
+  function notifyReadyOrder(order: TableOrder) {
+    const title = "Pedido pronto para levar";
+    const body = `Mesa ${order.tableNumber} · ${order.items.map((item) => `${item.quantity}x ${item.name}`).join(", ")}`;
+    setNewAlert(`${title}: ${body}`);
+    window.setTimeout(() => setNewAlert(""), 8000);
+    playNotificationSound();
+    if ("Notification" in window && Notification.permission === "granted") {
+      try {
+        new Notification(title, { body, tag: `ready-order-${order.id}` });
+      } catch (notificationError) {
+        console.error("Erro ao exibir notificaÃ§Ã£o do pedido pronto:", notificationError);
       }
     }
   }
@@ -348,7 +366,18 @@ export default function WaiterModule({
             where("restaurantId", "==", restaurantId),
           ),
           (snapshot) => {
-            setOrders(snapshot.docs.map(convertTableOrder));
+            const newOrders = snapshot.docs.map(convertTableOrder);
+            const currentReadyOrderIds = new Set(
+              newOrders.filter((order) => order.status === "pronto").map((order) => order.id),
+            );
+            if (readyOrdersInitializedRef.current) {
+              newOrders
+                .filter((order) => order.status === "pronto" && !readyOrderIdsRef.current.has(order.id))
+                .forEach(notifyReadyOrder);
+            }
+            readyOrderIdsRef.current = currentReadyOrderIds;
+            readyOrdersInitializedRef.current = true;
+            setOrders(newOrders);
           },
           (snapshotError) => {
             console.error("Erro ao carregar comandas:", snapshotError);
@@ -392,6 +421,24 @@ export default function WaiterModule({
       ? request.status !== "completed"
       : request.status === "completed",
   );
+  const readyOrders = orders.filter((order) =>
+    order.status === "pronto"
+    && order.paymentStatus !== "paid"
+    && assignedTables.some((table) => table.tableNumber === order.tableNumber),
+  );
+
+  async function markOrderDelivered(order: TableOrder) {
+    if (updatingId) return;
+    setUpdatingId(order.id);
+    try {
+      await updateDoc(doc(db, "orders", order.id), { status: "entregue" });
+    } catch (deliveryError) {
+      console.error("Erro ao marcar pedido como entregue:", deliveryError);
+      setError("NÃ£o foi possÃ­vel atualizar o pedido. Tente novamente.");
+    } finally {
+      setUpdatingId("");
+    }
+  }
 
   async function advanceRequest(request: ServiceRequest) {
     const nextStatus =
@@ -493,6 +540,36 @@ export default function WaiterModule({
                 </article>
               );
             })}
+          </div>
+        )}
+      </section>
+
+      <section className="waiter-ready-orders" aria-label="Pedidos prontos para levar">
+        <div className="waiter-assigned-tables-heading">
+          <h2>Prontos para levar</h2>
+          <span>{readyOrders.length} pedidos</span>
+        </div>
+        {readyOrders.length === 0 ? (
+          <p className="waiter-assigned-tables-empty">Os pedidos da cozinha aparecerÃ£o aqui quando estiverem prontos.</p>
+        ) : (
+          <div className="waiter-ready-order-list">
+            {readyOrders.map((order) => (
+              <article className="waiter-ready-order" key={order.id}>
+                <div>
+                  <strong>Mesa {order.tableNumber}</strong>
+                  <span>{order.items.map((item) => `${item.quantity}x ${item.name}`).join(" · ")}</span>
+                  <span>{formatCurrency(order.total)}</span>
+                </div>
+                <button
+                  type="button"
+                  disabled={Boolean(updatingId)}
+                  onClick={() => void markOrderDelivered(order)}
+                >
+                  {updatingId === order.id ? <LoaderCircle className="waiter-loader" size={17} /> : <Check size={17} />}
+                  Marcar como entregue
+                </button>
+              </article>
+            ))}
           </div>
         )}
       </section>
