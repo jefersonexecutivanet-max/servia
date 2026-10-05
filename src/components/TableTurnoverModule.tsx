@@ -7,7 +7,7 @@ import {
 } from "lucide-react";
 import { formatCurrency } from "../utils/format";
 import type { TableStatus } from "../types/table";
-import { collection, doc, onSnapshot, query, serverTimestamp, where, writeBatch } from "firebase/firestore";
+import { collection, doc, getDoc, onSnapshot, query, serverTimestamp, where, writeBatch } from "firebase/firestore";
 import { db } from "../firebase";
 import { useRestaurantScope } from "../contexts/RestaurantContext";
 
@@ -198,6 +198,8 @@ export default function TableTurnoverModule({ embedded = false }: { embedded?: b
       return;
     }
     try {
+      const assignmentRef = doc(db, "waiterTables", `${restaurantId}_${tableNumber}`);
+      const assignmentSnapshot = await getDoc(assignmentRef);
       const batch = writeBatch(db);
       const paymentRef = doc(collection(db, "payments"));
       batch.set(paymentRef, {
@@ -215,6 +217,7 @@ export default function TableTurnoverModule({ embedded = false }: { embedded?: b
         batch.update(doc(db, "orders", order.id), { paymentStatus: "paid", paymentId: paymentRef.id, paidAt: serverTimestamp() });
       });
       batch.update(doc(db, "tables", `${restaurantId}_${tableNumber}`), { status: "livre", guests: 0, total: 0, customer: "" });
+      if (assignmentSnapshot.exists()) batch.delete(assignmentRef);
       await batch.commit();
     } catch (error) {
       console.error("Erro ao liberar mesa:", error);

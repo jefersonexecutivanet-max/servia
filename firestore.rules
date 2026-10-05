@@ -217,7 +217,9 @@ service cloud.firestore {
 
     match /waiterTables/{tableNumber} {
       allow get: if true;
-      allow list: if isOwner();
+      allow list: if isOwner()
+        || isActiveRestaurantOwner(resource.data.restaurantId)
+        || isWaiterFor(resource.data.waiterId);
       allow create, update: if isOwner() || validWaiterAssignment();
       allow delete: if isOwner();
     }

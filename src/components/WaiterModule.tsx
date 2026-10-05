@@ -16,8 +16,8 @@ import {
   query,
   serverTimestamp,
   setDoc,
-  updateDoc,
   where,
+  writeBatch,
   type DocumentData,
   type QueryDocumentSnapshot,
 } from "firebase/firestore";
@@ -49,6 +49,11 @@ type TableOrder = {
   paymentStatus: string;
   total: number;
   items: Array<{ name: string; quantity: number }>;
+};
+
+type AssignedTable = {
+  id: string;
+  tableNumber: number;
 };
 
 function convertRequest(
@@ -127,6 +132,7 @@ export default function WaiterModule({
   const [error, setError] = useState("");
   const [updatingId, setUpdatingId] = useState("");
   const [orders, setOrders] = useState<TableOrder[]>([]);
+  const [assignedTables, setAssignedTables] = useState<AssignedTable[]>([]);
   const [ordersAccessReady, setOrdersAccessReady] = useState(false);
   const seenRequestsRef = useRef(new Set<string>());
   const loadedRequestCollectionsRef = useRef(new Set<RequestCollection>());
@@ -314,6 +320,27 @@ export default function WaiterModule({
       },
     );
 
+    const assignmentsQuery = waiterId
+      ? query(
+          collection(db, "waiterTables"),
+          where("restaurantId", "==", restaurantId),
+          where("waiterId", "==", waiterId),
+        )
+      : query(collection(db, "waiterTables"), where("restaurantId", "==", restaurantId));
+    const unsubscribeAssignments = onSnapshot(
+      assignmentsQuery,
+      (snapshot) => {
+        setAssignedTables(snapshot.docs.map((item) => ({
+          id: item.id,
+          tableNumber: Number(item.data().tableNumber || 0),
+        })).sort((first, second) => first.tableNumber - second.tableNumber));
+      },
+      (snapshotError) => {
+        console.error("Erro ao carregar mesas assumidas:", snapshotError);
+        setError("NÃ£o foi possÃ­vel carregar as mesas assumidas.");
+      },
+    );
+
     const unsubscribeOrders = waiterId
       ? onSnapshot(
           query(
@@ -340,6 +367,7 @@ export default function WaiterModule({
     return () => {
       unsubscribeCalls();
       unsubscribeBills();
+      unsubscribeAssignments();
       unsubscribeOrders();
     };
   }, [restaurantId, waiterId, user.uid, ordersAccessReady]);
@@ -372,13 +400,25 @@ export default function WaiterModule({
 
     setUpdatingId(documentKey);
     try {
-      await updateDoc(doc(db, request.collectionName, request.id), {
+      const batch = writeBatch(db);
+      batch.update(doc(db, request.collectionName, request.id), {
         status: nextStatus,
         attendedBy: user.displayName || user.email || "Equipe",
         ...(nextStatus === "completed"
           ? { completedAt: serverTimestamp() }
           : {}),
       });
+      if (nextStatus === "in_progress") {
+        batch.set(doc(db, "waiterTables", `${restaurantId}_${request.tableNumber}`), {
+          restaurantId,
+          tableId: `${restaurantId}_${request.tableNumber}`,
+          tableNumber: request.tableNumber,
+          waiterId,
+          waiterName: request.waiterName || user.displayName || user.email || "Equipe",
+          updatedAt: serverTimestamp(),
+        });
+      }
+      await batch.commit();
     } catch (updateError) {
       console.error("Erro ao atualizar chamado:", updateError);
       setError("Não foi possível atualizar este chamado. Tente novamente.");
@@ -419,6 +459,43 @@ export default function WaiterModule({
           <span>Em atendimento</span>
         </div>
       </div>
+
+      <section className="waiter-assigned-tables" aria-label="Mesas assumidas">
+        <div className="waiter-assigned-tables-heading">
+          <h2>Minhas mesas</h2>
+          <span>{assignedTables.length} em atendimento</span>
+        </div>
+        {assignedTables.length === 0 ? (
+          <p className="waiter-assigned-tables-empty">As mesas que vocÃª assumir aparecerÃ£o aqui atÃ© o fechamento da conta.</p>
+        ) : (
+          <div className="waiter-assigned-tables-grid">
+            {assignedTables.map((table) => {
+              const tableOrders = orders.filter((order) =>
+                order.tableNumber === table.tableNumber
+                && order.status !== "cancelado"
+                && order.paymentStatus !== "paid",
+              );
+              return (
+                <article className="waiter-assigned-table" key={table.id}>
+                  <strong>Mesa {table.tableNumber}</strong>
+                  {tableOrders.length === 0 ? (
+                    <span>Nenhum pedido em aberto.</span>
+                  ) : (
+                    <>
+                      <ul>
+                        {tableOrders.flatMap((order) => order.items.map((item, index) => (
+                          <li key={`${order.id}-${index}`}>{item.quantity}x {item.name}</li>
+                        )))}
+                      </ul>
+                      <span>Total: {formatCurrency(tableOrders.reduce((sum, order) => sum + order.total, 0))}</span>
+                    </>
+                  )}
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </section>
 
       {showTurnover && (
         <section className="waiter-turnover-panel">
