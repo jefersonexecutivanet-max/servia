@@ -199,7 +199,7 @@ service cloud.firestore {
     }
 
     match /orders/{orderId} {
-      allow create: if isOwner() || (request.auth == null && validCustomerOrder());
+      allow create: if isOwner() || validCustomerOrder();
       allow read: if isOwner()
         || isActiveRestaurantOwner(resource.data.restaurantId)
         || isWaiterFor(resource.data.waiterId);
