@@ -126,7 +126,9 @@ const ownerIdentity = {
 ========================================================= */
 
 function LoginScreen({ waiterMode = false }: { waiterMode?: boolean } = {}) {
-  const [mode, setMode] = useState<"login" | "register" | "reset">("login");
+  const [mode, setMode] = useState<"login" | "register" | "reset">(
+    waiterMode ? "register" : "login",
+  );
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -198,9 +200,12 @@ function LoginScreen({ waiterMode = false }: { waiterMode?: boolean } = {}) {
         await signOut(auth);
         setNotice(
           waiterMode
-            ? "Confirme seu e-mail e depois entre novamente pelo QR do garçom."
+            ? "Sua senha foi criada. Confirme seu e-mail e depois volte ao QR para entrar com seu e-mail e senha."
             : "Confirme seu e-mail antes de entrar no Servia.",
         );
+        if (waiterMode) {
+          setMode("login");
+        }
       }
     } catch (err: unknown) {
       const code =
@@ -215,7 +220,12 @@ function LoginScreen({ waiterMode = false }: { waiterMode?: boolean } = {}) {
       ) {
         setError("E-mail ou senha incorretos.");
       } else if (code === "auth/email-already-in-use") {
-        setError("Este e-mail já está cadastrado.");
+        if (waiterMode && mode === "register") {
+          setMode("login");
+          setError("Este e-mail já tem uma conta. Entre com a senha que você criou.");
+        } else {
+          setError("Este e-mail já está cadastrado.");
+        }
       } else if (code === "auth/weak-password") {
         setError(
           "A senha precisa ter pelo menos 6 caracteres.",
@@ -265,16 +275,16 @@ function LoginScreen({ waiterMode = false }: { waiterMode?: boolean } = {}) {
 
             <div>
               <h1>
-                {mode === "login"
-                  ? "Bem-vindo de volta"
-                  : "Criar conta"}
+                {waiterMode
+                  ? mode === "login" ? "Entrar na equipe" : "Ative seu acesso à equipe"
+                  : mode === "login" ? "Bem-vindo de volta" : "Criar conta"}
               </h1>
 
               <p>
                 {waiterMode
                   ? mode === "login"
-                    ? "Entre com o e-mail cadastrado pelo administrador."
-                    : "Crie sua conta usando o e-mail cadastrado pelo administrador."
+                    ? "Entre com o e-mail cadastrado pelo restaurante e a senha que você criou."
+                    : "Crie sua senha usando o e-mail cadastrado pelo restaurante."
                   : mode === "login"
                     ? "Entre para administrar seu restaurante."
                     : "Comece a gerenciar seu restaurante com o Servia."}
@@ -329,7 +339,7 @@ function LoginScreen({ waiterMode = false }: { waiterMode?: boolean } = {}) {
 
                 <input
                   type="password"
-                  placeholder="Sua senha"
+                  placeholder={waiterMode && mode === "register" ? "Crie uma senha (mínimo 6 caracteres)" : "Sua senha"}
                   value={password}
                   onChange={(event) =>
                     setPassword(event.target.value)
@@ -358,7 +368,9 @@ function LoginScreen({ waiterMode = false }: { waiterMode?: boolean } = {}) {
             >
               {loading
                 ? "Aguarde..."
-                : mode === "login"
+                : waiterMode && mode === "register"
+                  ? "Criar senha e ativar acesso"
+                  : mode === "login"
                   ? "Entrar no Servia"
                   : "Criar minha conta"}
             </button>
@@ -410,7 +422,7 @@ function LoginScreen({ waiterMode = false }: { waiterMode?: boolean } = {}) {
             <div className="login-switch">
               <span>
                 {mode === "login"
-                  ? (waiterMode ? "Primeiro acesso ao Servia?" : "Esqueceu sua senha?")
+                  ? (waiterMode ? "Primeiro acesso à equipe?" : "Esqueceu sua senha?")
                   : "Já possui uma conta?"}
               </span>
 
