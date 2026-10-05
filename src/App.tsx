@@ -276,7 +276,7 @@ function LoginScreen({ waiterMode = false }: { waiterMode?: boolean } = {}) {
             <div>
               <h1>
                 {waiterMode
-                  ? mode === "login" ? "Entrar na equipe" : "Ative seu acesso à equipe"
+                  ? mode === "login" ? "Entrar na equipe" : "Crie sua senha da equipe"
                   : mode === "login" ? "Bem-vindo de volta" : "Criar conta"}
               </h1>
 
@@ -284,7 +284,7 @@ function LoginScreen({ waiterMode = false }: { waiterMode?: boolean } = {}) {
                 {waiterMode
                   ? mode === "login"
                     ? "Entre com o e-mail cadastrado pelo restaurante e a senha que você criou."
-                    : "Crie sua senha usando o e-mail cadastrado pelo restaurante."
+                    : "Digite o e-mail cadastrado pelo restaurante e escolha uma senha para acessar o sistema da equipe."
                   : mode === "login"
                     ? "Entre para administrar seu restaurante."
                     : "Comece a gerenciar seu restaurante com o Servia."}
@@ -369,7 +369,7 @@ function LoginScreen({ waiterMode = false }: { waiterMode?: boolean } = {}) {
               {loading
                 ? "Aguarde..."
                 : waiterMode && mode === "register"
-                  ? "Criar senha e ativar acesso"
+                  ? "Criar minha senha"
                   : mode === "login"
                   ? "Entrar no Servia"
                   : "Criar minha conta"}
