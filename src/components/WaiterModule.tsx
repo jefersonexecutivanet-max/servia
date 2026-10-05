@@ -44,6 +44,7 @@ type TableOrder = {
   id: string;
   tableNumber: number;
   status: string;
+  paymentStatus: string;
   total: number;
   items: Array<{ name: string; quantity: number }>;
 };
@@ -77,6 +78,7 @@ function convertTableOrder(
     id: snapshot.id,
     tableNumber: Number(data.tableNumber || 0),
     status: String(data.status || "novo"),
+    paymentStatus: String(data.paymentStatus || "unpaid"),
     total: Number(data.total || 0),
     items: Array.isArray(data.items)
       ? data.items.map((item) => ({
@@ -275,7 +277,6 @@ export default function WaiterModule({
           query(
             collection(db, "orders"),
             where("restaurantId", "==", restaurantId),
-            where("waiterId", "==", waiterId),
           ),
           (snapshot) => {
             setOrders(snapshot.docs.map(convertTableOrder));
@@ -467,7 +468,11 @@ export default function WaiterModule({
                     </span>
                   )}
                   {orders
-                    .filter((order) => order.tableNumber === request.tableNumber)
+                    .filter((order) =>
+                      order.tableNumber === request.tableNumber
+                      && order.status !== "cancelado"
+                      && order.paymentStatus !== "paid",
+                    )
                     .map((order) => (
                       <div className="waiter-command" key={order.id}>
                         <div>

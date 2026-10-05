@@ -114,6 +114,29 @@ export default function TeamModule() {
     );
   }, [restaurantId]);
 
+  useEffect(() => {
+    if (!restaurantId || members.length === 0) {
+      return;
+    }
+
+    const batch = writeBatch(db);
+    let linkedAccounts = 0;
+    members.forEach((member) => {
+      if (!member.uid) return;
+      batch.set(doc(db, "restaurantStaff", member.uid), {
+        restaurantId,
+        waiterId: member.id,
+        active: member.status === "ativo",
+      });
+      linkedAccounts += 1;
+    });
+    if (linkedAccounts > 0) {
+      void batch.commit().catch((syncError) => {
+        console.error("Erro ao sincronizar acesso da equipe:", syncError);
+      });
+    }
+  }, [members, restaurantId]);
+
   const filteredMembers = members.filter((member) =>
     `${member.name} ${member.employeeNumber}`
       .toLowerCase()
@@ -225,6 +248,11 @@ export default function TeamModule() {
           role: formData.role,
           active: editingMember ? editingMember.status === "ativo" : true,
         });
+        batch.set(doc(db, "restaurantStaff", createdAccount.user.uid), {
+          restaurantId,
+          waiterId: waiterRef.id,
+          active: editingMember ? editingMember.status === "ativo" : true,
+        });
         try {
           await batch.commit();
         } catch (saveError) {
@@ -281,6 +309,7 @@ export default function TeamModule() {
       const batch = writeBatch(db);
       batch.delete(doc(db, "waiters", member.id));
       batch.delete(doc(db, "waiterDirectory", member.id));
+      if (member.uid) batch.delete(doc(db, "restaurantStaff", member.uid));
       await batch.commit();
       setNotice("Acesso do garçom removido.");
     } catch (deleteError) {
@@ -299,6 +328,13 @@ export default function TeamModule() {
       const batch = writeBatch(db);
       batch.update(doc(db, "waiters", member.id), { active });
       batch.update(doc(db, "waiterDirectory", member.id), { active });
+      if (member.uid) {
+        batch.set(doc(db, "restaurantStaff", member.uid), {
+          restaurantId,
+          waiterId: member.id,
+          active,
+        });
+      }
       await batch.commit();
       setNotice(member.status === "ativo" ? "Acesso desativado." : "Acesso ativado.");
     } catch (statusError) {

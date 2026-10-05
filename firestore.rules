@@ -22,6 +22,13 @@ service cloud.firestore {
         && get(restaurantPath).data.monthlyPaidUntil > request.time;
     }
 
+    function isActiveTeamMemberForRestaurant(restaurantId) {
+      return signedIn()
+        && exists(/databases/$(database)/documents/restaurantStaff/$(request.auth.uid))
+        && get(/databases/$(database)/documents/restaurantStaff/$(request.auth.uid)).data.active == true
+        && get(/databases/$(database)/documents/restaurantStaff/$(request.auth.uid)).data.restaurantId == restaurantId;
+    }
+
     function canManageRestaurant(restaurantId) {
       return isOwner() || isActiveRestaurantOwner(restaurantId);
     }
@@ -182,6 +189,17 @@ service cloud.firestore {
       ) || validWaiterClaim() || validWaiterPasswordChange();
     }
 
+    match /restaurantStaff/{staffUid} {
+      allow get: if isOwner() || (signedIn() && staffUid == request.auth.uid);
+      allow list: if isOwner();
+      allow create: if isOwner() || canManageRestaurant(request.resource.data.restaurantId);
+      allow update: if isOwner() || (
+        canManageRestaurant(resource.data.restaurantId)
+        && request.resource.data.restaurantId == resource.data.restaurantId
+      );
+      allow delete: if isOwner() || canManageRestaurant(resource.data.restaurantId);
+    }
+
     match /waiterTables/{tableNumber} {
       allow get: if true;
       allow list: if isOwner();
@@ -202,7 +220,8 @@ service cloud.firestore {
       allow create: if isOwner() || validCustomerOrder();
       allow read: if isOwner()
         || isActiveRestaurantOwner(resource.data.restaurantId)
-        || isWaiterFor(resource.data.waiterId);
+        || isWaiterFor(resource.data.waiterId)
+        || isActiveTeamMemberForRestaurant(resource.data.restaurantId);
       allow update: if canManageRestaurant(resource.data.restaurantId)
         && request.resource.data.restaurantId == resource.data.restaurantId;
       allow delete: if canManageRestaurant(resource.data.restaurantId);
