@@ -1,105 +1,38 @@
-# Servia - Sistema de Gestão para Restaurantes
+# Servia
 
-## Configurar o atendimento dos garçons
+Sistema de atendimento para restaurantes em React 19, Vite, TypeScript e Firebase Authentication/Firestore. O alvo documentado de publicação é Firebase Hosting; o fluxo padrão usa recursos compatíveis com o plano Spark.
 
-1. No Firebase Console, habilite Authentication com e-mail/senha e crie a base Firestore. Este fluxo usa somente Firebase Authentication, Firestore e Hosting e permanece no plano Spark.
-2. Instale o Firebase CLI e entre na conta que administra o projeto:
+## Configuração
 
-  ```powershell
-  npx firebase-tools login
-  ```
+1. Instale Node.js 22+ e Firebase CLI. Copie `.env.example` para `.env.local` e preencha a configuração Firebase e os valores `VITE_OWNER_UID`, `VITE_OWNER_EMAIL` e `VITE_PIX_KEY`.
+2. No Firebase Console, habilite autenticação por e-mail/senha e autenticação anônima. O cliente QR usa autenticação anônima; App Check pode ser habilitado com `VITE_ENABLE_APP_CHECK=true` e `VITE_RECAPTCHA_SITE_KEY` após configurar o provedor no Console.
+3. Instale dependências (`npm ci`), execute `npm run dev` e configure o restaurante/equipe no painel.
+4. Para QR de mesa, defina `VITE_PUBLIC_BASE_URL` como a origem HTTPS pública desejada. Gere/rotacione o token na tela Mesas e reimprima os QR Codes. Mesas antigas sem token seguem aceitas para compatibilidade.
+5. A consulta pública de garçons passou a usar `waiterDirectory/{restaurantId}/staff`. Migre os dados legados antes de publicar as novas regras: disponibilize `firebase-service-account.json` localmente e rode `npm run migrate:waiter-directory`.
 
-3. Faça o build e publique o Hosting e as regras:
+## Desenvolvimento e publicação
 
-  ```powershell
-  npm run build
-  npx firebase-tools deploy --only hosting,firestore:rules --project SEU_PROJECT_ID
-  ```
-
-  O dono é identificado pelo UID `FOuQD7ivuuVAfDZwlsjaU2Lte753` e pelo e-mail `finho60@hotmail.com`; somente essa conta precisa existir no Firebase Authentication, sem confirmação de e-mail.
-
-4. Entre com a conta existente do dono e cadastre os dados do restaurante em **Configurações**. O cadastro público de donos está desativado. Em **Equipe**, cadastre nome, função e número da empresa; o QR do garçom vincula o e-mail dele ao cadastro uma única vez.
-
-## Configuração de Impressoras
-
-O sistema possui configurações separadas para impressoras de cozinha e caixa:
-
-### Impressora da Cozinha (Configuração do Restaurante)
-1. Vá em **Configurações > Impressoras**
-2. Na seção "Impressora da Cozinha", configure:
-   - **Habilitar impressora**: Ative para usar impressora de cozinha
-   - **Impressão automática**: Ative para imprimir comandas automaticamente quando pedidos são recebidos
-   - **Tipo de conexão**: Escolha entre Browser, USB, Bluetooth ou Rede
-   - **Largura do papel**: 58mm (compacto) ou 80mm (padrão)
-3. Clique em "Testar impressora" para verificar
-4. Salve as configurações
-
-### Impressora do Caixa (Configuração por Usuário)
-1. Vá em **Configurações > Impressoras**
-2. Na seção "Impressora do Caixa", configure:
-   - **Habilitar impressora**: Ative para usar impressora do caixa
-   - **Tipo de conexão**: Escolha entre Browser, USB, Bluetooth ou Rede
-   - **Largura do papel**: 58mm (compacto) ou 80mm (padrão)
-3. Clique em "Testar impressora" para verificar
-4. Salve as configurações
-
-**Importante**: A configuração da impressora do caixa é específica para cada usuário. Cada caixa deve configurar sua própria impressora ao fazer login.
-
-### Funcionamento
-- **Pedidos**: Com a impressão automática ativada na cozinha, todos os pedidos feitos pelos clientes via QR Code serão impressos automaticamente
-- **Contas**: Quando o garçom fechar a mesa, a conta será impressa automaticamente na impressora configurada pelo usuário do caixa
-
-## Impressao automatica no computador da cozinha
-
-No computador da cozinha, abra **Configuracoes do Windows > Bluetooth e dispositivos > Impressoras e scanners**, escolha a impressora e selecione **Definir como padrao**. Em **Configuracoes > Configuracao de Impressoras**, habilite a impressora e a impressao automatica. O Servia envia as comandas para a impressora padrao escolhida pelo sistema.
-
-Para evitar que a janela de impressao interrompa cada pedido, use o Chrome ou Edge em modo de quiosque com impressao silenciosa. No computador da cozinha, baixe/clonar o projeto e execute no PowerShell, substituindo pelo endereco publico real do Servia:
-
-```powershell
-.\scripts\start-kitchen-printing.ps1 -Url "https://SEU-ENDERECO-DO-SERVIA"
+```sh
+npm ci
+npm run dev
+npm run build
+npx firebase-tools deploy --only hosting,firestore:rules,firestore:indexes --project SEU_PROJECT_ID
 ```
 
-Na primeira abertura, entre com o usuario do restaurante nesse navegador. O script cria um perfil separado do navegador para manter a sessao do computador da cozinha e abre diretamente o modulo **Cozinha**. Deixe essa tela aberta durante o expediente para receber e imprimir cada novo pedido imediatamente. Para sair do modo quiosque, pressione **Alt+F4**.
+Confira [TESTING.md](TESTING.md) para verificações automatizadas e roteiro manual. O GitHub Actions executa TypeScript, lint e regras do Firestore em cada push/PR.
 
-Antes de usar com clientes, envie um pedido de teste e confira se a impressora selecionada nas configuracoes do Windows e o tamanho do papel estao corretos.
+## Impressão e notificações
 
-## Acesso pela rede local
+A impressão usa o diálogo de impressão do navegador e a impressora padrão do sistema. Impressão silenciosa depende da configuração de quiosque do navegador, fora do controle do app. USB, Bluetooth e rede não estão implementados e não aparecem como opções ativas. A configuração da cozinha é salva no restaurante, com cache local de contingência.
 
-Para abrir o Servia em celulares conectados ao mesmo Wi-Fi do computador que o hospeda, execute `npm run dev` ou `npm run preview` e use no computador o endereco `Network` mostrado pelo Vite, em vez de `localhost`. Os QR Codes usam o endereco atual do navegador; portanto, ao gerar/imprimir os QR Codes, o painel precisa estar aberto pelo endereco acessivel na rede local. O computador deve permanecer ligado e o firewall pode solicitar permissao para o servidor.
+No plano Spark, o app mostra chamados pendentes ao abrir, emite aviso sonoro repetido e tenta notificação local do navegador em segundo plano. Push FCM e envio servidor a servidor exigem credenciais e Cloud Functions no plano Blaze e ainda não fazem parte do fluxo padrão.
 
-O modo offline atual mantem o app e dados previamente consultados no cache de cada aparelho. A gravacao offline do Firestore fica na fila daquele aparelho e sincroniza quando a internet voltar; ela nao encaminha pedidos de um celular para a cozinha em tempo real sem internet. Para isso, o Servia precisa de um servidor e armazenamento locais compartilhados na rede do restaurante.
+## Variáveis de ambiente
 
-## Funcionalidades
+Veja `.env.example`. App Check fica desligado por padrão. `VITE_CALL_ESCALATION_MINUTES` controla o destaque de chamadas antigas (padrão 3). `VITE_PUBLIC_BASE_URL` define a origem dos QR Codes. Nunca coloque credenciais de Admin SDK ou tokens privados em variáveis `VITE_*`.
 
-O app é instalável pelo navegador e mantém o app shell e os dados consultados no dispositivo. Abra uma vez enquanto estiver online para o cache inicial ser preenchido. Pedidos/configurações gravados offline entram na fila local e sincronizam quando a conexão voltar. O cliente abre `/mesa/{número}`, escolhe um garçom ao chamar ou pedir a conta, e o chamado/comanda é encaminhado ao celular autenticado desse garçom.
+## Migração e segurança
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+As alterações de schema são aditivas e mantêm leitura de dados antigos. Antes de aplicar as regras, faça backup e migre o diretório público de garçons. Tokens de mesa devem ser tratados como segredos: rotacione-os se um QR for exposto.
 
-Currently, two official plugins are available:
-
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
-```
-
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+O token `VERCEL_OIDC_TOKEN` incluído no arquivo ZIP precisa ser invalidado no provedor. Para limpar o histórico Git, faça backup e execute, após instalar `git-filter-repo`, `git filter-repo --path VERCEL_OIDC_TOKEN --invert-paths`; isso reescreve commits e exige coordenar o novo push com colaboradores.

@@ -19,6 +19,12 @@ service cloud.firestore {
         && request.auth.uid == restaurantId
         && exists(restaurantPath)
         && get(restaurantPath).data.ownerEmail == request.auth.token.email
+        && restaurantIsActive(restaurantId);
+    }
+
+    function restaurantIsActive(restaurantId) {
+      let restaurantPath = /databases/$(database)/documents/restaurants/$(restaurantId);
+      return exists(restaurantPath)
         && get(restaurantPath).data.status == 'active'
         && get(restaurantPath).data.monthlyPaidUntil is timestamp
         && get(restaurantPath).data.monthlyPaidUntil > request.time;
@@ -57,6 +63,7 @@ service cloud.firestore {
         && exists(staffPath)
         && get(staffPath).data.active == true
         && get(staffPath).data.restaurantId == restaurantId
+        && restaurantIsActive(restaurantId)
         && (role == expectedRole
           || (expectedRole == 'WAITER' && role in ['Garçom', 'Garçonete', 'Funcionário'])
           || (expectedRole == 'FLOOR_MANAGER' && role == 'Chefe de salão'));
@@ -104,11 +111,26 @@ service cloud.firestore {
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['paymentStatus', 'paymentId', 'paidAt']);
     }
 
+    function validOrderPrintClaim() {
+      return (isKitchen(resource.data.restaurantId) || isRestaurantManager(resource.data.restaurantId))
+        && !('printedAt' in resource.data)
+        && request.resource.data.printedAt is timestamp
+        && request.resource.data.printedBy == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['printedAt', 'printedBy']);
+    }
+
     function validFloorTableUpdate() {
       return isFloorManager(resource.data.restaurantId)
         && request.resource.data.restaurantId == resource.data.restaurantId
         && request.resource.data.diff(resource.data).affectedKeys()
           .hasOnly(['status', 'guests', 'total', 'customer', 'x', 'y']);
+    }
+
+    function validCashierTableClose() {
+      return isCashier(resource.data.restaurantId)
+        && request.resource.data.restaurantId == resource.data.restaurantId
+        && request.resource.data.status == 'livre'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'guests', 'total', 'customer']);
     }
 
     function isActiveWaiterForRestaurant(waiterId, restaurantId) {
@@ -126,11 +148,13 @@ service cloud.firestore {
         && exists(waiterPath)
         && get(waiterPath).data.active == true
         && get(waiterPath).data.uid == request.auth.uid
-        && get(waiterPath).data.email == request.auth.token.email;
+        && get(waiterPath).data.email == request.auth.token.email
+        && restaurantIsActive(get(waiterPath).data.restaurantId);
     }
 
     function validWaiterClaim() {
       return signedIn()
+        && request.auth.token.email_verified == true
         && resource.data.active == true
         && resource.data.uid == ''
         && request.resource.data.uid == request.auth.uid
@@ -170,8 +194,9 @@ service cloud.firestore {
     function validCustomerOrder() {
       let data = request.resource.data;
       let tablePath = /databases/$(database)/documents/tables/$(data.tableId);
-      return data.keys().hasAll(['restaurantId', 'tableId', 'tableNumber', 'status', 'source', 'items', 'total', 'createdAt'])
-        && data.keys().hasOnly(['restaurantId', 'tableId', 'tableNumber', 'waiterId', 'status', 'source', 'items', 'total', 'createdAt'])
+      return signedIn()
+        && data.keys().hasAll(['restaurantId', 'tableId', 'tableNumber', 'status', 'source', 'items', 'total', 'createdAt', 'customerUid'])
+        && data.keys().hasOnly(['restaurantId', 'tableId', 'tableNumber', 'waiterId', 'status', 'source', 'items', 'total', 'createdAt', 'accessToken', 'customerUid'])
         && data.restaurantId is string
         && data.restaurantId.size() > 0
         && data.tableNumber is int
@@ -179,36 +204,89 @@ service cloud.firestore {
         && data.tableNumber > 0
         && data.status == 'novo'
         && data.source == 'qrcode'
-        && data.items is list
+        && validOrderItems(data.items)
         && data.total is number
+        && math.abs(data.total - orderItemsTotal(data.items)) < 0.01
         && data.createdAt is timestamp
         && exists(tablePath)
         && get(tablePath).data.restaurantId == data.restaurantId
         && get(tablePath).data.number == data.tableNumber
+        && (!('lastOrderAt' in get(tablePath).data)
+          || request.time >= get(tablePath).data.lastOrderAt + duration.value(30, 's'))
+        && getAfter(tablePath).data.lastOrderAt == request.time
+        && (!('accessToken' in get(tablePath).data) || (('accessToken' in data) && data.accessToken == get(tablePath).data.accessToken))
+        && data.customerUid == request.auth.uid
         && (!('waiterId' in data) || isActiveWaiterForRestaurant(data.waiterId, data.restaurantId));
+    }
+
+    function validOrderItem(item) {
+      return item is map
+        && item.keys().hasAll(['productId', 'quantity', 'price'])
+        && item.keys().hasOnly(['productId', 'name', 'quantity', 'price', 'extras', 'notes'])
+        && item.productId is string
+        && item.quantity is int && item.quantity >= 1 && item.quantity <= 99
+        && item.price is number && item.price >= 0;
+    }
+
+    function validOrderItems(items) {
+      return items is list && items.size() >= 1 && items.size() <= 10
+        && validOrderItem(items[0])
+        && (items.size() < 2 || validOrderItem(items[1]))
+        && (items.size() < 3 || validOrderItem(items[2]))
+        && (items.size() < 4 || validOrderItem(items[3]))
+        && (items.size() < 5 || validOrderItem(items[4]))
+        && (items.size() < 6 || validOrderItem(items[5]))
+        && (items.size() < 7 || validOrderItem(items[6]))
+        && (items.size() < 8 || validOrderItem(items[7]))
+        && (items.size() < 9 || validOrderItem(items[8]))
+        && (items.size() < 10 || validOrderItem(items[9]));
+    }
+
+    function orderItemsTotal(items) {
+      return items[0].quantity * items[0].price
+        + (items.size() > 1 ? items[1].quantity * items[1].price : 0)
+        + (items.size() > 2 ? items[2].quantity * items[2].price : 0)
+        + (items.size() > 3 ? items[3].quantity * items[3].price : 0)
+        + (items.size() > 4 ? items[4].quantity * items[4].price : 0)
+        + (items.size() > 5 ? items[5].quantity * items[5].price : 0)
+        + (items.size() > 6 ? items[6].quantity * items[6].price : 0)
+        + (items.size() > 7 ? items[7].quantity * items[7].price : 0)
+        + (items.size() > 8 ? items[8].quantity * items[8].price : 0)
+        + (items.size() > 9 ? items[9].quantity * items[9].price : 0);
     }
 
     function validServiceRequest() {
       let data = request.resource.data;
       let directoryPath = /databases/$(database)/documents/waiterDirectory/$(data.waiterId);
       let tablePath = /databases/$(database)/documents/tables/$(data.tableId);
-      return data.keys().hasAll(['restaurantId', 'tableId', 'tableNumber', 'type', 'waiterId', 'waiterName', 'status', 'createdAt'])
-        && data.keys().hasOnly(['restaurantId', 'tableId', 'tableNumber', 'type', 'waiterId', 'waiterName', 'status', 'createdAt'])
+      return signedIn()
+        && data.keys().hasAll(['restaurantId', 'tableId', 'tableNumber', 'type', 'waiterId', 'waiterName', 'status', 'createdAt', 'customerUid'])
+        && data.keys().hasOnly(['restaurantId', 'tableId', 'tableNumber', 'type', 'waiterId', 'waiterName', 'status', 'createdAt', 'accessToken', 'customerUid'])
         && data.restaurantId is string
         && data.tableId is string
         && data.tableNumber is int
         && data.tableNumber > 0
         && (data.type == 'waiter' || data.type == 'bill')
         && data.waiterId is string
+        && data.customerUid == request.auth.uid
         && exists(directoryPath)
         && get(directoryPath).data.active == true
         && get(directoryPath).data.restaurantId == data.restaurantId
         && exists(tablePath)
         && get(tablePath).data.restaurantId == data.restaurantId
         && get(tablePath).data.number == data.tableNumber
+        && (!('accessToken' in get(tablePath).data) || (('accessToken' in data) && data.accessToken == get(tablePath).data.accessToken))
         && get(directoryPath).data.name == data.waiterName
         && data.status == 'pending'
         && data.createdAt is timestamp;
+    }
+
+    function validRepeatServiceRequest() {
+      return resource.data.status == 'completed'
+        && request.resource.data.status == 'pending'
+        && validServiceRequest()
+        && request.resource.data.tableId == resource.data.tableId
+        && request.resource.data.type == resource.data.type;
     }
 
     function validWaiterAssignment() {
@@ -229,7 +307,7 @@ service cloud.firestore {
         && get(tablePath).data.restaurantId == data.restaurantId
         && get(tablePath).data.number == data.tableNumber
         && get(directoryPath).data.name == data.waiterName
-        && (!signedIn() || isFloorManager(data.restaurantId)
+        && (isFloorManager(data.restaurantId)
           || (isStaffRoleForRestaurant(data.restaurantId, 'WAITER')
             && get(/databases/$(database)/documents/restaurantStaff/$(request.auth.uid)).data.waiterId == data.waiterId))
         && data.updatedAt is timestamp;
@@ -261,14 +339,34 @@ service cloud.firestore {
       allow delete: if isOwner();
     }
 
+    match /restaurants/{restaurantId}/settings/{settingId} {
+      allow get, list: if isOwner() || isRestaurantManager(restaurantId)
+        || isKitchen(restaurantId);
+      allow create, update: if isOwner() || isRestaurantManager(restaurantId);
+      allow delete: if isOwner() || isRestaurantManager(restaurantId);
+    }
+
     match /waiterDirectory/{waiterId} {
-      allow get, list: if isOwner() || resource.data.active == true;
+      allow get: if isOwner() || (signedIn() && resource.data.active == true
+        && resource.data.keys().hasOnly(['restaurantId', 'name', 'role', 'active']));
+      allow list: if isOwner();
       allow create: if isOwner() || canManageEmployees(request.resource.data.restaurantId);
       allow update: if isOwner() || (
         canManageEmployees(resource.data.restaurantId)
         && request.resource.data.restaurantId == resource.data.restaurantId
       );
       allow delete: if isOwner() || canManageEmployees(resource.data.restaurantId);
+    }
+
+    match /waiterDirectory/{restaurantId}/staff/{waiterId} {
+      allow get, list: if signedIn() && restaurantIsActive(restaurantId)
+        && resource.data.restaurantId == restaurantId
+        && resource.data.active == true
+        && resource.data.keys().hasOnly(['restaurantId', 'name', 'role', 'active']);
+      allow create, update: if isRestaurantManager(restaurantId)
+        && request.resource.data.restaurantId == restaurantId
+        && request.resource.data.keys().hasOnly(['restaurantId', 'name', 'role', 'active']);
+      allow delete: if isRestaurantManager(restaurantId);
     }
 
     match /waiters/{waiterId} {
@@ -304,13 +402,15 @@ service cloud.firestore {
     }
 
     match /waiterTables/{tableNumber} {
-      allow get: if true;
+      allow get: if isOwner() || isActiveRestaurantOwner(resource.data.restaurantId)
+        || isFloorManager(resource.data.restaurantId) || isCashier(resource.data.restaurantId)
+        || isWaiterFor(resource.data.waiterId);
       allow list: if isOwner()
         || isActiveRestaurantOwner(resource.data.restaurantId)
         || isFloorManager(resource.data.restaurantId)
         || isWaiterFor(resource.data.waiterId);
       allow create, update: if isOwner() || isFloorManager(request.resource.data.restaurantId) || validWaiterAssignment();
-      allow delete: if isOwner() || isFloorManager(resource.data.restaurantId);
+      allow delete: if isOwner() || isFloorManager(resource.data.restaurantId) || isCashier(resource.data.restaurantId);
     }
 
     match /tables/{tableId} {
@@ -328,7 +428,10 @@ service cloud.firestore {
         || isWaiterFor(resource.data.waiterId);
       allow create: if isRestaurantManager(request.resource.data.restaurantId);
       allow update: if (isRestaurantManager(resource.data.restaurantId)
-        && request.resource.data.restaurantId == resource.data.restaurantId) || validFloorTableUpdate();
+        && request.resource.data.restaurantId == resource.data.restaurantId) || validFloorTableUpdate() || validCashierTableClose()
+        || (signedIn() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastOrderAt'])
+          && request.resource.data.lastOrderAt == request.time
+          && (!('lastOrderAt' in resource.data) || request.time >= resource.data.lastOrderAt + duration.value(30, 's')));
       allow delete: if isRestaurantManager(resource.data.restaurantId);
     }
 
@@ -341,12 +444,12 @@ service cloud.firestore {
         || isFloorManager(resource.data.restaurantId)
         || isCashier(resource.data.restaurantId)
         || isKitchen(resource.data.restaurantId)
-        || (isWaiterFor(resource.data.waiterId)
-          && isStaffRoleForRestaurant(resource.data.restaurantId, 'WAITER'));
+        || isWaiterFor(resource.data.waiterId)
+        || (signedIn() && ('customerUid' in resource.data) && resource.data.customerUid == request.auth.uid);
       allow update: if (isRestaurantManager(resource.data.restaurantId)
         && request.resource.data.restaurantId == resource.data.restaurantId)
         || validLeadOrderUpdate() || validKitchenOrderUpdate()
-        || validCashierOrderClose() || validWaiterOrderDelivery();
+        || validCashierOrderClose() || validWaiterOrderDelivery() || validOrderPrintClaim();
       allow delete: if isRestaurantManager(resource.data.restaurantId);
     }
 
@@ -363,38 +466,49 @@ service cloud.firestore {
     }
     match /cashTransactions/{transactionId} {
       allow read: if isOwner() || isCashier(resource.data.restaurantId);
-      allow create: if isCashier(request.resource.data.restaurantId)
-        && request.resource.data.keys().hasOnly(['restaurantId', 'type', 'category', 'description', 'amount', 'paymentMethod', 'reference', 'createdAt'])
-        && (request.resource.data.type == 'entrada' || request.resource.data.type == 'saida')
+      allow create: if (isOwner() || isActiveRestaurantOwner(request.resource.data.restaurantId) || isCashier(request.resource.data.restaurantId))
+        && request.resource.data.keys().hasOnly(['restaurantId', 'type', 'category', 'description', 'amount', 'paymentMethod', 'reference', 'createdAt', 'createdBy'])
+        && (!('createdBy' in request.resource.data) || request.resource.data.createdBy == request.auth.uid)
+        && ((request.resource.data.type == 'entrada' || request.resource.data.type == 'saida')
+          || (request.resource.data.type == 'estorno' && request.resource.data.reference is string
+            && request.resource.data.createdBy == request.auth.uid
+            && transactionId == 'estorno_' + request.resource.data.reference
+            && exists(/databases/$(database)/documents/cashTransactions/$(request.resource.data.reference))
+            && get(/databases/$(database)/documents/cashTransactions/$(request.resource.data.reference)).data.restaurantId == request.resource.data.restaurantId
+            && get(/databases/$(database)/documents/cashTransactions/$(request.resource.data.reference)).data.type in ['entrada', 'saida']
+            && get(/databases/$(database)/documents/cashTransactions/$(request.resource.data.reference)).data.amount == request.resource.data.amount))
         && request.resource.data.amount is number && request.resource.data.amount > 0
         && request.resource.data.description is string && request.resource.data.createdAt is timestamp;
-      allow update: if isCashier(resource.data.restaurantId)
-        && request.resource.data.restaurantId == resource.data.restaurantId
-        && request.resource.data.keys().hasOnly(['restaurantId', 'type', 'category', 'description', 'amount', 'paymentMethod', 'reference', 'createdAt'])
-        && (request.resource.data.type == 'entrada' || request.resource.data.type == 'saida')
-        && request.resource.data.amount is number && request.resource.data.amount > 0;
-      allow delete: if isCashier(resource.data.restaurantId);
+      allow update, delete: if false;
     }
     match /tableCalls/{callId} {
       allow read: if isOwner() || isRestaurantManager(resource.data.restaurantId)
-        || isFloorManager(resource.data.restaurantId) || isWaiterFor(resource.data.waiterId);
-      allow create: if isOwner() || validServiceRequest();
+        || isFloorManager(resource.data.restaurantId) || isWaiterFor(resource.data.waiterId)
+        || (signedIn() && ('customerUid' in resource.data) && resource.data.customerUid == request.auth.uid);
+      allow create: if isOwner() || (validServiceRequest()
+        && callId == request.resource.data.tableId + '_waiter'
+        && !exists(/databases/$(database)/documents/tableCalls/$(callId)));
       allow update: if isOwner() || isRestaurantManager(resource.data.restaurantId)
-        || isFloorManager(resource.data.restaurantId) || validTableCallUpdate();
+        || isFloorManager(resource.data.restaurantId) || validTableCallUpdate()
+        || (callId == resource.data.tableId + '_waiter' && validRepeatServiceRequest());
       allow delete: if isOwner() || isRestaurantManager(resource.data.restaurantId);
     }
     match /billRequests/{requestId} {
       allow read: if isOwner() || isRestaurantManager(resource.data.restaurantId)
-        || isFloorManager(resource.data.restaurantId) || isWaiterFor(resource.data.waiterId);
-      allow create: if isOwner() || validServiceRequest();
+        || isFloorManager(resource.data.restaurantId) || isWaiterFor(resource.data.waiterId)
+        || (signedIn() && ('customerUid' in resource.data) && resource.data.customerUid == request.auth.uid);
+      allow create: if isOwner() || (validServiceRequest()
+        && requestId == request.resource.data.tableId + '_bill'
+        && !exists(/databases/$(database)/documents/billRequests/$(requestId)));
       allow update: if isOwner() || isRestaurantManager(resource.data.restaurantId)
-        || isFloorManager(resource.data.restaurantId) || validTableCallUpdate();
+        || isFloorManager(resource.data.restaurantId) || validTableCallUpdate()
+        || (requestId == resource.data.tableId + '_bill' && validRepeatServiceRequest());
       allow delete: if isOwner() || isRestaurantManager(resource.data.restaurantId);
     }
     match /payments/{paymentId} {
       allow read: if isOwner() || isCashier(resource.data.restaurantId)
         || isRestaurantManager(resource.data.restaurantId);
-      allow create: if isCashier(request.resource.data.restaurantId)
+      allow create: if (isOwner() || isActiveRestaurantOwner(request.resource.data.restaurantId) || isCashier(request.resource.data.restaurantId))
         && request.resource.data.keys().hasAll(['restaurantId', 'tableId', 'tableNumber', 'method', 'amount', 'items', 'status', 'createdAt'])
         && request.resource.data.keys().hasOnly(['restaurantId', 'tableId', 'tableNumber', 'method', 'amount', 'items', 'status', 'createdAt'])
         && request.resource.data.restaurantId is string && request.resource.data.tableId is string
@@ -404,21 +518,21 @@ service cloud.firestore {
         && exists(/databases/$(database)/documents/tables/$(request.resource.data.tableId))
         && get(/databases/$(database)/documents/tables/$(request.resource.data.tableId)).data.restaurantId == request.resource.data.restaurantId
         && get(/databases/$(database)/documents/tables/$(request.resource.data.tableId)).data.number == request.resource.data.tableNumber;
-      allow update: if isCashier(resource.data.restaurantId)
-        && request.resource.data.restaurantId == resource.data.restaurantId;
-      allow delete: if isCashier(resource.data.restaurantId);
+      allow update, delete: if false;
     }
     match /tableReleases/{releaseId} {
       allow read: if isOwner() || isFloorManager(resource.data.restaurantId) || isCashier(resource.data.restaurantId);
-      allow create: if request.auth == null
+      allow create: if signedIn()
         && request.resource.data.keys().hasAll(['restaurantId', 'tableId', 'tableNumber', 'totalAmount', 'paymentMethod', 'status', 'createdAt'])
-        && request.resource.data.keys().hasOnly(['restaurantId', 'tableId', 'tableNumber', 'totalAmount', 'paymentMethod', 'status', 'createdAt'])
+        && request.resource.data.keys().hasOnly(['restaurantId', 'tableId', 'tableNumber', 'totalAmount', 'paymentMethod', 'status', 'createdAt', 'accessToken'])
         && request.resource.data.restaurantId is string && request.resource.data.tableNumber is int
         && request.resource.data.totalAmount is number && request.resource.data.status == 'pending'
         && request.resource.data.createdAt is timestamp && request.resource.data.tableId is string
         && exists(/databases/$(database)/documents/tables/$(request.resource.data.tableId))
         && get(/databases/$(database)/documents/tables/$(request.resource.data.tableId)).data.restaurantId == request.resource.data.restaurantId
-        && get(/databases/$(database)/documents/tables/$(request.resource.data.tableId)).data.number == request.resource.data.tableNumber;
+        && get(/databases/$(database)/documents/tables/$(request.resource.data.tableId)).data.number == request.resource.data.tableNumber
+        && (!('accessToken' in get(/databases/$(database)/documents/tables/$(request.resource.data.tableId)).data)
+          || (('accessToken' in request.resource.data) && request.resource.data.accessToken == get(/databases/$(database)/documents/tables/$(request.resource.data.tableId)).data.accessToken));
       allow update: if isCashier(resource.data.restaurantId)
         && request.resource.data.restaurantId == resource.data.restaurantId;
       allow delete: if isCashier(resource.data.restaurantId);

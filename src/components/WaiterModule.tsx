@@ -12,10 +12,13 @@ import {
   collection,
   doc,
   getDoc,
+  limit,
   onSnapshot,
+  orderBy,
   query,
   serverTimestamp,
   setDoc,
+  Timestamp,
   updateDoc,
   where,
   writeBatch,
@@ -26,6 +29,7 @@ import type { User } from "firebase/auth";
 import { db } from "../firebase";
 import type { Table, TableStatus } from "../types/table";
 import { formatCurrency } from "../utils/format";
+import { calculateOrderTotal } from "../utils/orders";
 import { useRestaurantScope } from "../contexts/RestaurantContext";
 import TableTurnoverModule from "./TableTurnoverModule";
 
@@ -51,6 +55,7 @@ type TableOrder = {
   paymentStatus: string;
   total: number;
   items: Array<{ name: string; quantity: number }>;
+  createdAt?: Date;
 };
 
 type AssignedTable = {
@@ -99,13 +104,14 @@ function convertTableOrder(
     tableNumber: Number(data.tableNumber || 0),
     status: String(data.status || "novo"),
     paymentStatus: String(data.paymentStatus || "unpaid"),
-    total: Number(data.total || 0),
+    total: calculateOrderTotal(Array.isArray(data.items) ? data.items : []),
     items: Array.isArray(data.items)
       ? data.items.map((item) => ({
           name: String(item.name || "Item"),
           quantity: Number(item.quantity || 0),
         }))
       : [],
+    createdAt: data.createdAt?.toDate instanceof Function ? data.createdAt.toDate() : undefined,
   };
 }
 
@@ -152,6 +158,8 @@ export default function WaiterModule({
   const loadedRequestCollectionsRef = useRef(new Set<RequestCollection>());
   const readyOrderIdsRef = useRef(new Set<string>());
   const readyOrdersInitializedRef = useRef(false);
+  const orderIdsRef = useRef(new Set<string>());
+  const orderFeedInitializedRef = useRef(false);
   const audioContextRef = useRef<AudioContext | null>(null);
   const [alertsEnabled, setAlertsEnabled] = useState(false);
   const [newAlert, setNewAlert] = useState("");
@@ -204,7 +212,12 @@ export default function WaiterModule({
     playNotificationSound();
     if ("Notification" in window && Notification.permission === "granted") {
       try {
-        new Notification(title, { body, tag: `${request.collectionName}-${request.id}` });
+        const notificationOptions = { body, tag: `${request.collectionName}-${request.id}` };
+        if (document.hidden && "serviceWorker" in navigator) {
+          void navigator.serviceWorker.ready.then((registration) => registration.showNotification(title, notificationOptions));
+        } else {
+          new Notification(title, notificationOptions);
+        }
       } catch (notificationError) {
         console.error("Erro ao exibir notificação:", notificationError);
       }
@@ -219,9 +232,30 @@ export default function WaiterModule({
     playNotificationSound();
     if ("Notification" in window && Notification.permission === "granted") {
       try {
-        new Notification(title, { body, tag: `ready-order-${order.id}` });
+        const notificationOptions = { body, tag: `ready-order-${order.id}` };
+        if (document.hidden && "serviceWorker" in navigator) {
+          void navigator.serviceWorker.ready.then((registration) => registration.showNotification(title, notificationOptions));
+        } else {
+          new Notification(title, notificationOptions);
+        }
       } catch (notificationError) {
         console.error("Erro ao exibir notificação do pedido pronto:", notificationError);
+      }
+    }
+  }
+
+  function notifyNewOrder(order: TableOrder) {
+    const title = `Novo pedido · Mesa ${order.tableNumber}`;
+    const body = order.items.map((item) => `${item.quantity}x ${item.name}`).join(", ") || "A comanda foi atualizada.";
+    setNewAlert(`${title}: ${body}`);
+    window.setTimeout(() => setNewAlert(""), 8000);
+    playNotificationSound();
+    if ("Notification" in window && Notification.permission === "granted") {
+      const options = { body, tag: `new-order-${order.id}` };
+      if (document.hidden && "serviceWorker" in navigator) {
+        void navigator.serviceWorker.ready.then((registration) => registration.showNotification(title, options));
+      } else {
+        new Notification(title, options);
       }
     }
   }
@@ -243,7 +277,7 @@ export default function WaiterModule({
         || waiterData?.restaurantId !== restaurantId
         || waiterData?.active !== true
       ) {
-        throw new Error("A conta da equipe nÃ£o estÃ¡ ativa para este restaurante.");
+        throw new Error("A conta da equipe não está ativa para este restaurante.");
       }
       await setDoc(doc(db, "restaurantStaff", user.uid), {
         restaurantId,
@@ -255,9 +289,9 @@ export default function WaiterModule({
     }
 
     void registerTeamAccess().catch((accessError) => {
-      console.error("Erro ao validar acesso Ã s comandas:", accessError);
+      console.error("Erro ao validar acesso às comandas:", accessError);
       if (!cancelled) {
-        setError("NÃ£o foi possÃ­vel validar o acesso da equipe Ã s comandas.");
+        setError("Não foi possível validar o acesso da equipe às comandas.");
       }
     });
 
@@ -300,7 +334,11 @@ export default function WaiterModule({
         const newCalls = snapshot.docs.map((item) => convertRequest(item, "tableCalls"));
         const firstSnapshot = !loadedRequestCollectionsRef.current.has("tableCalls");
         if (firstSnapshot) {
-          snapshot.docs.forEach((item) => seenRequestsRef.current.add(`tableCalls/${item.id}`));
+          snapshot.docs.forEach((item) => {
+            seenRequestsRef.current.add(`tableCalls/${item.id}`);
+            const request = convertRequest(item, "tableCalls");
+            if (request.status === "pending") notifyNewRequest(request);
+          });
           loadedRequestCollectionsRef.current.add("tableCalls");
         } else {
           snapshot.docChanges().forEach((change) => {
@@ -329,7 +367,11 @@ export default function WaiterModule({
         const newBills = snapshot.docs.map((item) => convertRequest(item, "billRequests"));
         const firstSnapshot = !loadedRequestCollectionsRef.current.has("billRequests");
         if (firstSnapshot) {
-          snapshot.docs.forEach((item) => seenRequestsRef.current.add(`billRequests/${item.id}`));
+          snapshot.docs.forEach((item) => {
+            seenRequestsRef.current.add(`billRequests/${item.id}`);
+            const request = convertRequest(item, "billRequests");
+            if (request.status === "pending") notifyNewRequest(request);
+          });
           loadedRequestCollectionsRef.current.add("billRequests");
         } else {
           snapshot.docChanges().forEach((change) => {
@@ -369,7 +411,7 @@ export default function WaiterModule({
       },
       (snapshotError) => {
         console.error("Erro ao carregar mesas assumidas:", snapshotError);
-        setError("NÃ£o foi possÃ­vel carregar as mesas assumidas.");
+        setError("Não foi possível carregar as mesas assumidas.");
       },
     );
 
@@ -381,18 +423,29 @@ export default function WaiterModule({
       },
       (snapshotError) => {
         console.error("Erro ao carregar o mapa de mesas:", snapshotError);
-        setError("NÃ£o foi possÃ­vel carregar o mapa de mesas.");
+        setError("Não foi possível carregar o mapa de mesas.");
       },
     );
 
-    const unsubscribeOrders = waiterId
+  const unsubscribeOrders = waiterId
       ? onSnapshot(
           query(
             collection(db, "orders"),
             where("restaurantId", "==", restaurantId),
+            where("waiterId", "==", waiterId),
+            where("createdAt", ">=", Timestamp.fromMillis(Date.now() - 24 * 60 * 60 * 1000)),
+            orderBy("createdAt", "desc"),
+            limit(200),
           ),
           (snapshot) => {
             const newOrders = snapshot.docs.map(convertTableOrder);
+            const currentOrderIds = new Set(newOrders.map((order) => order.id));
+            const incomingOrders = orderFeedInitializedRef.current
+              ? snapshot.docChanges().filter((change) => change.type === "added").map((change) => convertTableOrder(change.doc))
+              : newOrders.filter((order) => order.status === "novo" && order.createdAt && Date.now() - order.createdAt.getTime() < 10 * 60 * 1000);
+            incomingOrders.filter((order) => order.status === "novo").forEach(notifyNewOrder);
+            orderIdsRef.current = currentOrderIds;
+            orderFeedInitializedRef.current = true;
             const currentReadyOrderIds = new Set(
               newOrders.filter((order) => order.status === "pronto").map((order) => order.id),
             );
@@ -443,6 +496,12 @@ export default function WaiterModule({
   const inProgressCount = requests.filter(
     (request) => request.status === "in_progress",
   ).length;
+  useEffect(() => {
+    if (!alertsEnabled || openCount === 0) return;
+    const soundInterval = window.setInterval(playNotificationSound, 5000);
+    return () => window.clearInterval(soundInterval);
+  }, [alertsEnabled, openCount]);
+  const escalationMinutes = Math.max(1, Number(import.meta.env.VITE_CALL_ESCALATION_MINUTES) || 3);
   const visibleRequests = requests.filter((request) =>
     filter === "open"
       ? request.status !== "completed"
@@ -478,7 +537,7 @@ export default function WaiterModule({
       await updateDoc(doc(db, "orders", order.id), { status: "entregue" });
     } catch (deliveryError) {
       console.error("Erro ao marcar pedido como entregue:", deliveryError);
-      setError("NÃ£o foi possÃ­vel atualizar o pedido. Tente novamente.");
+      setError("Não foi possível atualizar o pedido. Tente novamente.");
     } finally {
       setUpdatingId("");
     }
@@ -522,7 +581,7 @@ export default function WaiterModule({
     <section className="waiter-page" aria-live="polite">
       <header className="waiter-heading">
         <div>
-          <span className="eyebrow">SALÃO · EM TEMPO REAL</span>
+          <span className="eyebrow">SAL�O � EM TEMPO REAL</span>
           <h1>Atendimento</h1>
           <p>Chamados e pedidos de conta das mesas.</p>
         </div>
@@ -551,13 +610,13 @@ export default function WaiterModule({
         </div>
       </div>
 
-      <section className="waiter-floor-map-panel" aria-label="Mapa de mesas do salÃ£o">
+      <section className="waiter-floor-map-panel" aria-label="Mapa de mesas do salão">
         <div className="waiter-assigned-tables-heading">
-          <h2>Mapa do salÃ£o</h2>
+          <h2>Mapa do salão</h2>
           <span>{waiterMapTables.filter((table) => table.isAssignedToMe).length} mesas suas</span>
         </div>
         {waiterMapTables.length === 0 ? (
-          <p className="waiter-assigned-tables-empty">As mesas cadastradas aparecerÃ£o aqui.</p>
+          <p className="waiter-assigned-tables-empty">As mesas cadastradas aparecerão aqui.</p>
         ) : (
           <>
             <div className="waiter-floor-map">
@@ -597,7 +656,7 @@ export default function WaiterModule({
           <span>{assignedTables.length} em atendimento</span>
         </div>
         {assignedTables.length === 0 ? (
-          <p className="waiter-assigned-tables-empty">As mesas que vocÃª assumir aparecerÃ£o aqui atÃ© o fechamento da conta.</p>
+          <p className="waiter-assigned-tables-empty">As mesas que você assumir aparecerão aqui até o fechamento da conta.</p>
         ) : (
           <div className="waiter-assigned-tables-grid">
             {assignedTables.map((table) => {
@@ -634,7 +693,7 @@ export default function WaiterModule({
           <span>{readyOrders.length} pedidos</span>
         </div>
         {readyOrders.length === 0 ? (
-          <p className="waiter-assigned-tables-empty">Os pedidos da cozinha aparecerÃ£o aqui quando estiverem prontos.</p>
+          <p className="waiter-assigned-tables-empty">Os pedidos da cozinha aparecerão aqui quando estiverem prontos.</p>
         ) : (
           <div className="waiter-ready-order-list">
             {readyOrders.map((order) => (
@@ -718,10 +777,11 @@ export default function WaiterModule({
             const Icon: ElementType = isBill ? ReceiptText : BellRing;
             const isCompleted = request.status === "completed";
             const isInProgress = request.status === "in_progress";
+            const isEscalated = request.status === "pending" && request.createdAt != null && Date.now() - request.createdAt.getTime() >= escalationMinutes * 60_000;
 
             return (
               <article
-                className={`waiter-request ${isBill ? "bill" : "call"} ${isCompleted ? "completed" : ""}`}
+                className={`waiter-request ${isBill ? "bill" : "call"} ${isCompleted ? "completed" : ""} ${isEscalated ? "escalated" : ""}`}
                 key={documentKey}
               >
                 <div className="waiter-request-icon">
@@ -737,6 +797,7 @@ export default function WaiterModule({
                   <strong className="waiter-table-number">
                     Mesa {request.tableNumber}
                   </strong>
+                  {isEscalated && <span className="waiter-attendant">Aguardando há mais de {escalationMinutes} min · prioridade do salão</span>}
                   {isInProgress && request.attendedBy && (
                     <span className="waiter-attendant">
                       Em atendimento por {request.attendedBy}

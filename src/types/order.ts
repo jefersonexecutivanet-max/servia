@@ -20,4 +20,6 @@ export type Order = {
   paymentStatus?: "paid" | "unpaid";
   paymentId?: string;
   paidAt?: Date;
+  printedAt?: Date;
+  printedBy?: string;
 };

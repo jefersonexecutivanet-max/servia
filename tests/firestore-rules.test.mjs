@@ -11,11 +11,13 @@ import {
   addDoc,
   collection,
   deleteDoc,
+  deleteField,
   doc,
   getDoc,
   getDocs,
   query,
   setDoc,
+  serverTimestamp,
   updateDoc,
   where,
   writeBatch,
@@ -40,9 +42,12 @@ beforeEach(async () => {
     await Promise.all([
       setDoc(doc(db, "restaurants/restaurant-a"), { name: "A", ownerEmail: "owner-a@example.com", status: "active", monthlyPaidUntil: Timestamp.fromMillis(Date.now() + 30 * 86400000) }),
       setDoc(doc(db, "restaurants/restaurant-b"), { name: "B", ownerEmail: "owner-b@example.com", status: "active", monthlyPaidUntil: Timestamp.fromMillis(Date.now() + 30 * 86400000) }),
-      setDoc(doc(db, "waiterDirectory/waiter-1"), { restaurantId: "restaurant-a", name: "Ana", active: true }),
-      setDoc(doc(db, "waiterDirectory/waiter-2"), { restaurantId: "restaurant-b", name: "Bruno", active: true }),
-      setDoc(doc(db, "waiterDirectory/waiter-inactive"), { restaurantId: "restaurant-a", name: "Caio", active: false }),
+      setDoc(doc(db, "waiterDirectory/waiter-1"), { restaurantId: "restaurant-a", name: "Ana", role: "WAITER", active: true }),
+      setDoc(doc(db, "waiterDirectory/waiter-2"), { restaurantId: "restaurant-b", name: "Bruno", role: "WAITER", active: true }),
+      setDoc(doc(db, "waiterDirectory/waiter-inactive"), { restaurantId: "restaurant-a", name: "Caio", role: "WAITER", active: false }),
+      setDoc(doc(db, "waiterDirectory/restaurant-a/staff/waiter-1"), { restaurantId: "restaurant-a", name: "Ana", role: "WAITER", active: true }),
+      setDoc(doc(db, "waiterDirectory/restaurant-a/staff/waiter-inactive"), { restaurantId: "restaurant-a", name: "Caio", role: "WAITER", active: false }),
+      setDoc(doc(db, "waiterDirectory/restaurant-b/staff/waiter-2"), { restaurantId: "restaurant-b", name: "Bruno", role: "WAITER", active: true }),
       setDoc(doc(db, "waiters/waiter-1"), { restaurantId: "restaurant-a", name: "Ana", role: "Garçom", employeeNumber: "101", email: "ana@example.com", uid: "auth-ana", active: true }),
       setDoc(doc(db, "waiters/waiter-2"), { restaurantId: "restaurant-b", name: "Bruno", role: "Garçom", employeeNumber: "102", email: "bruno@example.com", uid: "auth-bruno", active: true }),
       setDoc(doc(db, "waiters/waiter-inactive"), { restaurantId: "restaurant-a", name: "Caio", role: "Garçom", employeeNumber: "103", email: "caio@example.com", uid: "auth-caio", active: false }),
@@ -86,19 +91,38 @@ after(async () => {
   await testEnvironment.cleanup();
 });
 
+function writeCustomerOrder(db, order) {
+  const batch = writeBatch(db);
+  batch.set(doc(collection(db, "orders")), order);
+  batch.update(doc(db, "tables", order.tableId), { lastOrderAt: serverTimestamp() });
+  return batch.commit();
+}
+
+async function clearOrderCooldown(tableId) {
+  await testEnvironment.withSecurityRulesDisabled(async (context) => {
+    await updateDoc(doc(context.firestore(), "tables", tableId), { lastOrderAt: deleteField() });
+  });
+}
+
 test("cliente pode listar garçons ativos, mas não ler dados privados", async () => {
-  const db = testEnvironment.unauthenticatedContext().firestore();
+  const db = testEnvironment.authenticatedContext("customer-a", { firebase: { sign_in_provider: "anonymous" } }).firestore();
   const directory = await assertSucceeds(
     getDocs(query(
-      collection(db, "waiterDirectory"),
+      collection(db, "waiterDirectory", "restaurant-a", "staff"),
       where("restaurantId", "==", "restaurant-a"),
       where("active", "==", true),
     )),
   );
 
   assert.equal(directory.size, 1);
+  await assertFails(getDocs(collection(db, "waiterDirectory")));
   await assertFails(getDoc(doc(db, "waiters/waiter-1")));
   await assertFails(getDoc(doc(db, "tableCalls/call-1")));
+});
+
+test("cliente anônimo não pode reatribuir a mesa a outro garçom", async () => {
+  const db = testEnvironment.authenticatedContext("customer-a", { firebase: { sign_in_provider: "anonymous" } }).firestore();
+  await assertFails(updateDoc(doc(db, "waiterTables/restaurant-a_12"), { waiterId: "waiter-2" }));
 });
 
 test("garçom só lê e atualiza chamados atribuídos à própria conta", async () => {
@@ -148,7 +172,7 @@ test("garçom só lê e atualiza chamados atribuídos à própria conta", async 
 });
 
 test("pedido de cliente só pode indicar um garçom ativo", async (t) => {
-  const db = testEnvironment.unauthenticatedContext().firestore();
+  const db = testEnvironment.authenticatedContext("customer-a", { firebase: { sign_in_provider: "anonymous" } }).firestore();
   const validOrder = {
     restaurantId: "restaurant-a",
     tableId: "restaurant-a_12",
@@ -156,16 +180,17 @@ test("pedido de cliente só pode indicar um garçom ativo", async (t) => {
     waiterId: "waiter-1",
     status: "novo",
     source: "qrcode",
-    items: [],
+    items: [{ productId: "item-a", quantity: 1, price: 0 }],
     total: 0,
     createdAt: Timestamp.now(),
+    customerUid: "customer-a",
   };
 
   await t.test("allows an active waiter in tenant A", async () => {
-    await assertSucceeds(addDoc(collection(db, "orders"), validOrder));
+    await assertSucceeds(writeCustomerOrder(db, validOrder));
   });
   await t.test("allows an active waiter in tenant B only for tenant B orders", async () => {
-    await assertSucceeds(addDoc(collection(db, "orders"), {
+    await assertSucceeds(writeCustomerOrder(db, {
       ...validOrder,
       restaurantId: "restaurant-b",
       tableId: "restaurant-b_15",
@@ -174,22 +199,23 @@ test("pedido de cliente só pode indicar um garçom ativo", async (t) => {
     }));
   });
   await t.test("rejects a missing waiter", async () => {
-    await assertFails(addDoc(collection(db, "orders"), {
+    await assertFails(writeCustomerOrder(db, {
       ...validOrder,
       waiterId: "missing-waiter",
     }));
   });
   await t.test("allows a QR order before waiter assignment", async () => {
+    await clearOrderCooldown("restaurant-a_12");
     const unassignedOrder = { ...validOrder };
     delete unassignedOrder.waiterId;
-    await assertSucceeds(addDoc(collection(db, "orders"), unassignedOrder));
+    await assertSucceeds(writeCustomerOrder(db, unassignedOrder));
   });
 });
 
 test("cliente pode criar um chamado validado e atribuir a mesa a um garçom ativo", async () => {
-  const db = testEnvironment.unauthenticatedContext().firestore();
+  const db = testEnvironment.authenticatedContext("customer-a", { firebase: { sign_in_provider: "anonymous" } }).firestore();
   const batch = writeBatch(db);
-  batch.set(doc(db, "tableCalls/client-call"), {
+  batch.set(doc(db, "tableCalls/restaurant-a_12_waiter"), {
     restaurantId: "restaurant-a",
     tableId: "restaurant-a_12",
     tableNumber: 12,
@@ -198,19 +224,11 @@ test("cliente pode criar um chamado validado e atribuir a mesa a um garçom ativ
     waiterName: "Ana",
     status: "pending",
     createdAt: Timestamp.now(),
-  });
-  batch.set(doc(db, "waiterTables/restaurant-a_12"), {
-    restaurantId: "restaurant-a",
-    tableId: "restaurant-a_12",
-    tableNumber: 12,
-    waiterId: "waiter-1",
-    waiterName: "Ana",
-    updatedAt: Timestamp.now(),
+    customerUid: "customer-a",
   });
   await assertSucceeds(batch.commit());
 
-  const invalidCall = writeBatch(db);
-  invalidCall.set(doc(db, "tableCalls/spoofed-call"), {
+  await assertFails(setDoc(doc(db, "tableCalls/spoofed-call"), {
     restaurantId: "restaurant-a",
     tableId: "restaurant-a_12",
     tableNumber: 12,
@@ -219,8 +237,8 @@ test("cliente pode criar um chamado validado e atribuir a mesa a um garçom ativ
     waiterName: "Outro nome",
     status: "pending",
     createdAt: Timestamp.now(),
-  });
-  await assertFails(invalidCall.commit());
+    customerUid: "customer-a",
+  }));
 });
 
 test("garçom desativado perde acesso mesmo com uma sessão ainda válida", async () => {
@@ -300,6 +318,15 @@ test("conta de restaurante pendente só consegue ler o próprio status", async (
 });
 
 test("conta verificada pode vincular somente um cadastro ainda não reivindicado", async () => {
+  const unverified = testEnvironment.authenticatedContext("auth-unverified", {
+    email: "unverified@example.com",
+    email_verified: false,
+  }).firestore();
+  await assertFails(updateDoc(doc(unverified, "waiters/waiter-unclaimed"), {
+    uid: "auth-unverified",
+    email: "unverified@example.com",
+  }));
+
   const newWaiter = testEnvironment.authenticatedContext("auth-dani", {
     email: "dani@example.com",
     email_verified: true,
@@ -318,6 +345,36 @@ test("conta verificada pode vincular somente um cadastro ainda não reivindicado
     uid: "auth-other",
     email: "other@example.com",
   }));
+});
+
+test("pedido público exige o token quando a mesa possui um", async () => {
+  await testEnvironment.withSecurityRulesDisabled(async (context) => {
+    await updateDoc(doc(context.firestore(), "tables/restaurant-a_12"), { accessToken: "a".repeat(48) });
+  });
+  const db = testEnvironment.authenticatedContext("customer-token", { firebase: { sign_in_provider: "anonymous" } }).firestore();
+  const order = {
+    restaurantId: "restaurant-a", tableId: "restaurant-a_12", tableNumber: 12,
+    status: "novo", source: "qrcode", items: [{ productId: "item-a", quantity: 1, price: 0 }], total: 0, createdAt: Timestamp.now(),
+    customerUid: "customer-token",
+  };
+  await assertFails(addDoc(collection(db, "orders"), order));
+  await assertFails(addDoc(collection(db, "orders"), { ...order, accessToken: "b".repeat(48) }));
+  await assertSucceeds(writeCustomerOrder(db, { ...order, accessToken: "a".repeat(48) }));
+});
+
+test("chamado tokenizado impede spam enquanto estiver pendente", async () => {
+  await testEnvironment.withSecurityRulesDisabled(async (context) => {
+    await updateDoc(doc(context.firestore(), "tables/restaurant-a_12"), { accessToken: "c".repeat(48) });
+  });
+  const db = testEnvironment.authenticatedContext("customer-token", { firebase: { sign_in_provider: "anonymous" } }).firestore();
+  const request = {
+    restaurantId: "restaurant-a", tableId: "restaurant-a_12", tableNumber: 12, type: "waiter",
+    waiterId: "waiter-1", waiterName: "Ana", status: "pending", createdAt: Timestamp.now(),
+    customerUid: "customer-token", accessToken: "c".repeat(48),
+  };
+  const requestRef = doc(db, "tableCalls/restaurant-a_12_waiter");
+  await assertSucceeds(setDoc(requestRef, request));
+  await assertFails(setDoc(requestRef, request));
 });
 
 test("dono de restaurante não lê comandas de outro tenant", async () => {
@@ -363,6 +420,8 @@ test("proprietário ativo gerencia dados operacionais apenas no próprio tenant"
     restaurantId: "restaurant-a", tableId: "restaurant-a_12", tableNumber: 12, method: "pix", amount: 25,
     items: 1, status: "completed", createdAt: Timestamp.now(),
   }));
+  await assertFails(updateDoc(doc(owner, "payments/payment-a"), { amount: 1 }));
+  await assertFails(deleteDoc(doc(owner, "payments/payment-a")));
   const ownStock = await assertSucceeds(getDocs(query(collection(owner, "stock"), where("restaurantId", "==", "restaurant-a"))));
   assert.equal(ownStock.size, 1);
   await assertFails(getDocs(query(collection(owner, "stock"), where("restaurantId", "==", "restaurant-b"))));
@@ -371,15 +430,19 @@ test("proprietário ativo gerencia dados operacionais apenas no próprio tenant"
   const ownPayments = await assertSucceeds(getDocs(query(collection(owner, "payments"), where("restaurantId", "==", "restaurant-a"))));
   assert.equal(ownPayments.size, 1);
   await assertSucceeds(updateDoc(doc(owner, "stock/stock-a"), { quantity: 8 }));
-  await assertSucceeds(updateDoc(doc(owner, "cashTransactions/expense-a"), { description: "Compra registrada" }));
+  await assertFails(updateDoc(doc(owner, "cashTransactions/expense-a"), { description: "Compra registrada" }));
   await assertSucceeds(deleteDoc(doc(owner, "stock/stock-a")));
-  await assertSucceeds(deleteDoc(doc(owner, "cashTransactions/expense-a")));
+  await assertFails(deleteDoc(doc(owner, "cashTransactions/expense-a")));
+  await assertSucceeds(setDoc(doc(owner, "cashTransactions/estorno_expense-a"), {
+    restaurantId: "restaurant-a", type: "estorno", category: "Insumos", description: "Estorno: Compra",
+    amount: 50, paymentMethod: "pix", reference: "expense-a", createdBy: "restaurant-a", createdAt: Timestamp.now(),
+  }));
   await assertFails(getDoc(doc(owner, "orders/order-2")));
   await assertFails(getDoc(doc(owner, "payments/payment-b")));
 });
 
 test("cliente só solicita liberação para uma mesa pertencente ao restaurante", async () => {
-  const db = testEnvironment.unauthenticatedContext().firestore();
+  const db = testEnvironment.authenticatedContext("customer-a", { firebase: { sign_in_provider: "anonymous" } }).firestore();
   await assertSucceeds(setDoc(doc(db, "tableReleases/release-a"), {
     restaurantId: "restaurant-a", tableId: "restaurant-a_12", tableNumber: 12,
     totalAmount: 25, paymentMethod: "pix", status: "pending", createdAt: Timestamp.now(),
@@ -433,4 +496,16 @@ test("assinatura vencida bloqueia dados operacionais mesmo com status antigo act
   }).firestore();
   await assertSucceeds(getDoc(doc(expiredOwner, "restaurants/expired-restaurant")));
   await assertFails(getDoc(doc(expiredOwner, "orders/expired-order")));
+});
+
+test("equipe de restaurante vencido perde leitura operacional", async () => {
+  await testEnvironment.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await updateDoc(doc(db, "restaurants/restaurant-a"), { monthlyPaidUntil: Timestamp.fromMillis(Date.now() - 1000) });
+    await setDoc(doc(db, "restaurantStaff/kitchen-expired"), {
+      restaurantId: "restaurant-a", waiterId: "kitchen-expired", role: "KITCHEN", active: true,
+    });
+  });
+  const staffDb = testEnvironment.authenticatedContext("kitchen-expired", { email_verified: true }).firestore();
+  await assertFails(getDoc(doc(staffDb, "orders/order-1")));
 });

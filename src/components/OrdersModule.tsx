@@ -15,70 +15,14 @@ import {
   query,
   updateDoc,
   where,
-  type DocumentData,
-  type QueryDocumentSnapshot,
 } from "firebase/firestore";
 import { db } from "../firebase";
 import { formatCurrency } from "../utils/format";
 import type { Order, OrderStatus } from "../types/order";
+import { convertOrder, formatTime, statusClass, statusLabel } from "../utils/orders";
 import { useRestaurantScope } from "../contexts/RestaurantContext";
 
 type Filter = "todos" | OrderStatus;
-
-function formatTime(date?: Date) {
-  if (!date) {
-    return "--:--";
-  }
-
-  return date.toLocaleTimeString("pt-BR", {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-function statusLabel(status: OrderStatus) {
-  switch (status) {
-    case "novo":
-      return "Novo";
-
-    case "preparando":
-      return "Preparando";
-
-    case "pronto":
-      return "Pronto";
-
-    case "entregue":
-      return "Entregue";
-
-    case "cancelado":
-      return "Cancelado";
-
-    default:
-      return status;
-  }
-}
-
-function statusClass(status: OrderStatus) {
-  switch (status) {
-    case "novo":
-      return "new";
-
-    case "preparando":
-      return "preparing";
-
-    case "pronto":
-      return "ready";
-
-    case "entregue":
-      return "delivered";
-
-    case "cancelado":
-      return "cancelled";
-
-    default:
-      return "";
-  }
-}
 
 function getNextStatus(
   status: OrderStatus,
@@ -112,29 +56,6 @@ function nextStatusLabel(status: OrderStatus) {
     default:
       return "";
   }
-}
-
-function convertOrder(
-  snapshot: QueryDocumentSnapshot<DocumentData>,
-): Order {
-  const data = snapshot.data();
-
-  const createdAt =
-    data.createdAt?.toDate instanceof Function
-      ? data.createdAt.toDate()
-      : undefined;
-
-  return {
-    id: snapshot.id,
-    tableNumber: Number(data.tableNumber || 0),
-    status: (data.status || "novo") as OrderStatus,
-    source: data.source,
-    items: Array.isArray(data.items)
-      ? data.items
-      : [],
-    total: Number(data.total || 0),
-    createdAt,
-  };
 }
 
 export default function OrdersModule() {

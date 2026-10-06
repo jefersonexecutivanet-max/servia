@@ -1,12 +1,12 @@
 import { useState, useEffect } from "react";
-import { Plus, Edit, Trash2, Search, TrendingUp, TrendingDown, Wallet } from "lucide-react";
-import { collection, deleteDoc, doc, onSnapshot, query, where, addDoc, serverTimestamp, updateDoc } from "firebase/firestore";
-import { db } from "../firebase";
+import { Plus, RotateCcw, Search, TrendingUp, TrendingDown, Wallet } from "lucide-react";
+import { collection, doc, onSnapshot, query, where, addDoc, serverTimestamp, setDoc } from "firebase/firestore";
+import { auth, db } from "../firebase";
 import { useRestaurantScope } from "../contexts/RestaurantContext";
 
 interface CashTransaction {
   id: string;
-  type: "entrada" | "saida";
+  type: "entrada" | "saida" | "estorno";
   category: string;
   description: string;
   amount: number;
@@ -21,7 +21,7 @@ export default function CashModule() {
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedType, setSelectedType] = useState("todos");
   const [showModal, setShowModal] = useState(false);
-  const [editingTransaction, setEditingTransaction] = useState<CashTransaction | null>(null);
+
   const [formData, setFormData] = useState({
     type: "entrada" as "entrada" | "saida",
     category: "",
@@ -70,18 +70,24 @@ export default function CashModule() {
       transaction.description.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  const effectiveType = (transaction: CashTransaction) => {
+    if (transaction.type !== "estorno") return transaction.type;
+    const original = transactions.find((item) => item.id === transaction.reference);
+    return original?.type === "saida" ? "entrada" : "saida";
+  };
+
   const totalEntradas = transactions
-    .filter((t) => t.type === "entrada")
+    .filter((transaction) => effectiveType(transaction) === "entrada")
     .reduce((sum, t) => sum + t.amount, 0);
 
   const totalSaidas = transactions
-    .filter((t) => t.type === "saida")
+    .filter((transaction) => effectiveType(transaction) === "saida")
     .reduce((sum, t) => sum + t.amount, 0);
 
   const saldo = totalEntradas - totalSaidas;
 
   const handleAddTransaction = () => {
-    setEditingTransaction(null);
+
     setFormData({
       type: "entrada",
       category: "",
@@ -93,25 +99,24 @@ export default function CashModule() {
     setShowModal(true);
   };
 
-  const handleEditTransaction = (transaction: CashTransaction) => {
-    setEditingTransaction(transaction);
-    setFormData({
-      type: transaction.type,
-      category: transaction.category,
-      description: transaction.description,
-      amount: transaction.amount,
-      paymentMethod: transaction.paymentMethod,
-      reference: transaction.reference || "",
-    });
-    setShowModal(true);
-  };
-
-  const handleDeleteTransaction = (id: string) => {
-    if (window.confirm("Deseja excluir esta transação?")) {
-      void deleteDoc(doc(db, "cashTransactions", id)).catch((error) => {
-        console.error("Erro ao excluir transação:", error);
-        window.alert("Não foi possível excluir a transação.");
+  const handleReverseTransaction = async (transaction: CashTransaction) => {
+    if (!restaurantId || !auth.currentUser || transaction.type === "estorno") return;
+    if (transactions.some((item) => item.type === "estorno" && item.reference === transaction.id)) return;
+    try {
+      await setDoc(doc(db, "cashTransactions", `estorno_${transaction.id}`), {
+        restaurantId,
+        type: "estorno",
+        category: transaction.category,
+        description: `Estorno: ${transaction.description}`,
+        amount: transaction.amount,
+        paymentMethod: transaction.paymentMethod,
+        reference: transaction.id,
+        createdBy: auth.currentUser.uid,
+        createdAt: serverTimestamp(),
       });
+    } catch (error) {
+      console.error("Erro ao estornar transação:", error);
+      window.alert("Não foi possível registrar o estorno.");
     }
   };
 
@@ -127,11 +132,7 @@ export default function CashModule() {
     }
 
     try {
-      if (editingTransaction) {
-        await updateDoc(doc(db, "cashTransactions", editingTransaction.id), { ...formData });
-      } else {
-        await addDoc(collection(db, "cashTransactions"), { ...formData, restaurantId, createdAt: serverTimestamp() });
-      }
+      await addDoc(collection(db, "cashTransactions"), { ...formData, restaurantId, createdAt: serverTimestamp() });
       setShowModal(false);
     } catch (error) {
       console.error("Erro ao salvar transação:", error);
@@ -235,8 +236,8 @@ export default function CashModule() {
         ) : (
           filteredTransactions.map((transaction) => (
             <div key={transaction.id} className="transaction-item">
-              <div className={`transaction-icon ${transaction.type}`}>
-                {transaction.type === "entrada" ? <TrendingUp size={20} /> : <TrendingDown size={20} />}
+              <div className={`transaction-icon ${effectiveType(transaction)}`}>
+                {effectiveType(transaction) === "entrada" ? <TrendingUp size={20} /> : <TrendingDown size={20} />}
               </div>
 
               <div className="transaction-info">
@@ -246,28 +247,19 @@ export default function CashModule() {
               </div>
 
               <div className="transaction-details">
-                <strong className={transaction.type === "entrada" ? "text-green" : "text-red"}>
-                  {transaction.type === "entrada" ? "+" : "-"}R$ {transaction.amount.toFixed(2)}
+                <strong className={effectiveType(transaction) === "entrada" ? "text-green" : "text-red"}>
+                  {effectiveType(transaction) === "entrada" ? "+" : "-"}R$ {transaction.amount.toFixed(2)}
                 </strong>
                 <span>{transaction.date.toLocaleDateString("pt-BR")}</span>
                 <span>{transaction.paymentMethod}</span>
               </div>
 
               <div className="transaction-actions">
-                <button
-                  className="icon-button"
-                  type="button"
-                  onClick={() => handleEditTransaction(transaction)}
-                >
-                  <Edit size={18} />
-                </button>
-                <button
-                  className="icon-button"
-                  type="button"
-                  onClick={() => handleDeleteTransaction(transaction.id)}
-                >
-                  <Trash2 size={18} />
-                </button>
+                {transaction.type !== "estorno" && !transactions.some((item) => item.type === "estorno" && item.reference === transaction.id) && (
+                  <button className="icon-button" type="button" onClick={() => void handleReverseTransaction(transaction)} aria-label="Estornar transação">
+                    <RotateCcw size={18} />
+                  </button>
+                )}
               </div>
             </div>
           ))
@@ -278,7 +270,7 @@ export default function CashModule() {
       {showModal && (
         <div className="modal-overlay">
           <div className="modal-content">
-            <h2>{editingTransaction ? "Editar Transação" : "Nova Transação"}</h2>
+            <h2>Nova transacao</h2>
 
             <form>
               <div className="form-group">

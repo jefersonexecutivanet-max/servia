@@ -1,3 +1,4 @@
+import { tableDocId } from "../utils/ids";
 import { useEffect, useMemo, useState } from "react";
 import { QRCodeCanvas } from "qrcode.react";
 import {
@@ -23,10 +24,12 @@ import {
 
 import { formatCurrency } from "../utils/format";
 import { generatePrintContent, printContent as printToPrinter, getUserPrinterSettings } from "../utils/printer";
-import { collection, deleteDoc, deleteField, doc, getDoc, onSnapshot, query, setDoc, updateDoc, where, getDocs, serverTimestamp, writeBatch } from "firebase/firestore";
+import { collection, deleteDoc, deleteField, doc, onSnapshot, query, setDoc, updateDoc, where, getDocs, serverTimestamp, runTransaction } from "firebase/firestore";
 import { db } from "../firebase";
 import { useRestaurantScope } from "../contexts/RestaurantContext";
 import type { Table, TableStatus } from "../types/table";
+import { generateAccessToken } from "../utils/tokens";
+import { calculateOrderTotal } from "../utils/orders";
 
 const initialTables: Table[] = [];
 
@@ -54,8 +57,11 @@ function statusLabel(status: TableStatus) {
   }
 }
 
-function getTableUrl(restaurantId: string, tableNumber: number) {
-  return `${window.location.origin}/mesa/${restaurantId}/${tableNumber}`;
+function getTableUrl(restaurantId: string, table: Table) {
+  const baseUrl = (import.meta.env.VITE_PUBLIC_BASE_URL || window.location.origin).replace(/\/$/, "");
+  const url = new URL(`/mesa/${restaurantId}/${table.number}`, baseUrl);
+  if (table.accessToken) url.searchParams.set("t", table.accessToken);
+  return url.toString();
 }
 
 export default function TablesModule() {
@@ -139,7 +145,7 @@ export default function TablesModule() {
   const operationalTables = useMemo(() => tables.map((table) => {
     const tableOrders = unpaidOrders.filter((order) => order.tableNumber === table.number);
     return tableOrders.length > 0
-      ? { ...table, status: "ocupada" as const, total: tableOrders.reduce((sum, order) => sum + (Number(order.total) || 0), 0) }
+      ? { ...table, status: "ocupada" as const, total: tableOrders.reduce((sum, order) => sum + calculateOrderTotal(Array.isArray(order.items) ? order.items : []), 0) }
       : table;
   }), [tables, unpaidOrders]);
 
@@ -237,7 +243,7 @@ export default function TablesModule() {
     // Save the new position to Firebase
     const table = tables.find(t => t.number === draggingTable);
     if (table && table.x !== undefined && table.y !== undefined) {
-      void updateDoc(doc(db, "tables", `${restaurantId}_${table.number}`), {
+      void updateDoc(doc(db, "tables", `${tableDocId(restaurantId, table.number)}`), {
         x: table.x,
         y: table.y,
       });
@@ -371,10 +377,7 @@ export default function TablesModule() {
       return;
     }
 
-    const url = getTableUrl(
-      restaurantId,
-      selectedTable.number,
-    );
+    const url = getTableUrl(restaurantId, selectedTable);
 
     try {
       await navigator.clipboard.writeText(url);
@@ -392,6 +395,13 @@ export default function TablesModule() {
     }
   }
 
+  async function rotateTableToken() {
+    if (!selectedTable) return;
+    const accessToken = generateAccessToken();
+    await updateDoc(doc(db, "tables", `${restaurantId}_${selectedTable.number}`), { accessToken });
+    setSelectedTable({ ...selectedTable, accessToken });
+  }
+
   async function writeNFC() {
     if (!selectedTable) {
       return;
@@ -399,7 +409,7 @@ export default function TablesModule() {
 
     const url = getTableUrl(
       restaurantId,
-      selectedTable.number,
+      selectedTable,
     );
 
     try {
@@ -453,75 +463,43 @@ export default function TablesModule() {
   }
 
   async function confirmCloseTable() {
-    if (!selectedTable) {
-      return;
-    }
-    if (closingTotal <= 0) {
-      window.alert("Esta comanda não tem um valor real para receber.");
-      return;
-    }
-
+    if (!selectedTable || !restaurantId) return;
+    const tableNumber = selectedTable.number;
+    const tableId = restaurantId + "_" + tableNumber;
+    const tableRef = doc(db, "tables", tableId);
+    const assignmentRef = doc(db, "waiterTables", tableId);
+    const paymentRef = doc(collection(db, "payments"));
+    let committed = false;
     try {
-      // Print bill automatically if enabled
+      const orderQuery = query(collection(db, "orders"), where("restaurantId", "==", restaurantId), where("tableNumber", "==", tableNumber));
+      const orderCandidates = await getDocs(orderQuery);
+      const finalized = await runTransaction(db, async (transaction) => {
+        const orderSnapshots = await Promise.all(orderCandidates.docs.map((item) => transaction.get(doc(db, "orders", item.id))));
+        const [tableSnapshot, assignmentSnapshot] = await Promise.all([transaction.get(tableRef), transaction.get(assignmentRef)]);
+        if (!tableSnapshot.exists()) throw new Error("Table no longer exists");
+        const activeOrders = orderSnapshots.filter((item) => item.exists() && item.data()!.status !== "cancelado" && item.data()!.paymentStatus !== "paid");
+        const items = activeOrders.flatMap((item) => Array.isArray(item.data()!.items) ? item.data()!.items : []);
+        const subtotal = calculateOrderTotal(items);
+        if (subtotal <= 0) throw new Error("No unpaid items remain on this table");
+        const amount = subtotal * 1.1;
+        transaction.set(paymentRef, { restaurantId, tableId, tableNumber, method: paymentMethod, amount, items: items.reduce((sum, item) => sum + (Number(item.quantity) || 0), 0), status: "completed", createdAt: serverTimestamp() });
+        activeOrders.forEach((item) => transaction.update(doc(db, "orders", item.id), { paymentStatus: "paid", paymentId: paymentRef.id, paidAt: serverTimestamp() }));
+        transaction.update(tableRef, { status: "livre", guests: 0, total: 0, customer: deleteField() });
+        if (assignmentSnapshot.exists()) transaction.delete(assignmentRef);
+        return { items, amount, subtotal, waiterName: String(assignmentSnapshot.data()?.waiterName || "Nao informado"), diverged: activeOrders.some((item) => Math.abs((Number(item.data()!.total) || 0) - calculateOrderTotal(Array.isArray(item.data()!.items) ? item.data()!.items : [])) > 0.01) };
+      });
+      committed = true;
+      if (finalized.diverged) window.alert("Um ou mais pedidos tinham total gravado diferente dos itens. A conta foi recalculada pelos itens.");
       const userPrinterSettings = getUserPrinterSettings();
       if (userPrinterSettings.printerEnabled) {
-        const billItems = selectedItems.map(item => ({
-          name: item.name,
-          quantity: item.quantity,
-          price: item.price,
-        }));
-
-        const billContent = generatePrintContent(
-          "CONTA FINALIZADA",
-          `MESA-${selectedTable.number}-${Date.now().toString().slice(-6)}`,
-          selectedTable.number,
-          billItems,
-          closingTotal,
-          {
-            "Pagamento": paymentMethod === "pix" ? "Pix" : paymentMethod === "card" ? "Cartão" : "Dinheiro",
-            "Taxa de serviço": formatCurrency(serviceFee),
-            "Garçom": selectedTable.customer || "Não informado",
-          },
-          userPrinterSettings.paperWidth,
-        );
+        const billContent = generatePrintContent("CONTA FINALIZADA", "MESA-" + tableNumber + "-" + Date.now().toString().slice(-6), tableNumber, finalized.items, finalized.amount, { Pagamento: paymentMethod, "Taxa de servico": formatCurrency(finalized.amount - finalized.subtotal), Garcom: finalized.waiterName }, userPrinterSettings.paperWidth);
         await printToPrinter(billContent, userPrinterSettings);
       }
-
-      const tableRef = doc(db, "tables", `${restaurantId}_${selectedTable.number}`);
-      const assignmentRef = doc(db, "waiterTables", `${restaurantId}_${selectedTable.number}`);
-      const assignmentSnapshot = await getDoc(assignmentRef);
-      const paymentRef = doc(collection(db, "payments"));
-      const batch = writeBatch(db);
-      batch.set(paymentRef, {
-        restaurantId,
-        tableId: `${restaurantId}_${selectedTable.number}`,
-        tableNumber: selectedTable.number,
-        method: paymentMethod,
-        amount: closingTotal,
-        items: selectedItems.reduce((quantity, item) => quantity + item.quantity, 0),
-        status: "completed",
-        createdAt: serverTimestamp(),
-      });
-      selectedTableOrders.forEach((order) => {
-        batch.update(doc(db, "orders", order.id), {
-          paymentStatus: "paid",
-          paymentId: paymentRef.id,
-          paidAt: serverTimestamp(),
-        });
-      });
-      batch.update(tableRef, {
-        status: "livre",
-        guests: 0,
-        total: 0,
-        customer: deleteField(),
-      });
-      if (assignmentSnapshot.exists()) batch.delete(assignmentRef);
-      await batch.commit();
       closeAllModals();
       setSelectedTable(null);
     } catch (closeError) {
       console.error("Erro ao fechar mesa:", closeError);
-      window.alert("Não foi possível fechar esta mesa.");
+      window.alert(committed ? "Fechamento registrado, mas não foi possível imprimir a conta." : "Não foi possível fechar esta mesa.");
     }
   }
 
@@ -1166,7 +1144,7 @@ export default function TablesModule() {
               <QRCodeCanvas
                 value={getTableUrl(
                   restaurantId,
-                  selectedTable.number,
+                  selectedTable,
                 )}
                 size={220}
                 level="H"
@@ -1184,9 +1162,15 @@ export default function TablesModule() {
             <div className="qr-url">
               {getTableUrl(
                 restaurantId,
-                selectedTable.number,
+                selectedTable,
               )}
             </div>
+
+            <p className="team-feedback">
+              {window.location.hostname === "localhost" || /^127\.|^10\.|^192\.168\.|^172\.(1[6-9]|2\d|3[01])\./.test(window.location.hostname)
+                ? "Esta origem é localhost ou IP local. Configure VITE_PUBLIC_BASE_URL para distribuir um QR acessível aos clientes."
+                : ""}
+            </p>
 
             <div className="modal-actions">
               <button
@@ -1209,6 +1193,10 @@ export default function TablesModule() {
                 )}
               </button>
 
+              <button className="secondary-button" type="button" onClick={() => void rotateTableToken()}>
+                Gerar/rotacionar token
+              </button>
+
               <button
                 className="primary-button"
                 type="button"
@@ -1216,7 +1204,7 @@ export default function TablesModule() {
                   window.open(
                     getTableUrl(
                       restaurantId,
-                      selectedTable.number,
+                      selectedTable,
                     ),
                     "_blank",
                     "noopener,noreferrer",
@@ -1294,7 +1282,7 @@ export default function TablesModule() {
               <strong>
                 {getTableUrl(
                   restaurantId,
-                  selectedTable.number,
+                  selectedTable,
                 )}
               </strong>
             </div>

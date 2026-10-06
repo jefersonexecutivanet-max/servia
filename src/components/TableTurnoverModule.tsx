@@ -6,6 +6,7 @@ import {
   Bell,
 } from "lucide-react";
 import { formatCurrency } from "../utils/format";
+import { calculateOrderTotal } from "../utils/orders";
 import type { TableStatus } from "../types/table";
 import { collection, doc, getDoc, onSnapshot, query, serverTimestamp, where, writeBatch } from "firebase/firestore";
 import { db } from "../firebase";
@@ -164,7 +165,7 @@ export default function TableTurnoverModule({ embedded = false }: { embedded?: b
   const liveTables = useMemo(() => tables.map((table) => {
     const tableOrders = openOrders.filter((order) => order.tableNumber === table.number);
     return tableOrders.length
-      ? { ...table, status: "ocupada" as const, total: tableOrders.reduce((sum, order) => sum + (Number(order.total) || 0), 0) }
+      ? { ...table, status: "ocupada" as const, total: tableOrders.reduce((sum, order) => sum + calculateOrderTotal(Array.isArray(order.items) ? order.items : []), 0) }
       : table;
   }), [tables, openOrders]);
 
@@ -233,7 +234,7 @@ export default function TableTurnoverModule({ embedded = false }: { embedded?: b
       <div className="turnover-page">
         <div className="module-header">
           <div>
-            <div className="eyebrow">INTELIGÊNCIA DE SALÃO</div>
+            <div className="eyebrow">INTELIG�NCIA DE SAL�O</div>
             <h1>Giro de Mesa Acelerado</h1>
             <p>Carregando dados...</p>
           </div>
@@ -244,13 +245,13 @@ export default function TableTurnoverModule({ embedded = false }: { embedded?: b
 
   if (tables.length === 0) {
     if (embedded) {
-      return <div className="turnover-embedded-loading">Nenhuma mesa cadastrada. Cadastre mesas no mÃ³dulo Mesas.</div>;
+      return <div className="turnover-embedded-loading">Nenhuma mesa cadastrada. Cadastre mesas no módulo Mesas.</div>;
     }
     return (
       <div className="turnover-page">
         <div className="module-header">
           <div>
-            <div className="eyebrow">INTELIGÊNCIA DE SALÃO</div>
+            <div className="eyebrow">INTELIG�NCIA DE SAL�O</div>
             <h1>Giro de Mesa Acelerado</h1>
             <p>Nenhuma mesa cadastrada. Cadastre mesas no módulo Mesas primeiro.</p>
           </div>
@@ -264,7 +265,7 @@ export default function TableTurnoverModule({ embedded = false }: { embedded?: b
       {!embedded && (
       <div className="module-header">
         <div>
-          <div className="eyebrow">INTELIGÊNCIA DE SALÃO</div>
+          <div className="eyebrow">INTELIG�NCIA DE SAL�O</div>
 
           <h1>Giro de Mesa Acelerado</h1>
 

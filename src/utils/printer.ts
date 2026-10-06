@@ -213,13 +213,6 @@ export function generatePrintContent(
   `;
 }
 
-function formatCurrency(value: number): string {
-  return new Intl.NumberFormat("pt-BR", {
-    style: "currency",
-    currency: "BRL",
-  }).format(value);
-}
-
 export async function printContent(htmlContent: string, settings?: RestaurantPrinterSettings | UserPrinterSettings): Promise<boolean> {
   const printerSettings = settings || getRestaurantPrinterSettings();
   if (!printerSettings.printerEnabled) return false;
@@ -297,3 +290,4 @@ export async function testPrinter(): Promise<boolean> {
   );
   return printContent(testContent, settings);
 }
+import { formatCurrency } from "./format";

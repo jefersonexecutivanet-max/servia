@@ -215,6 +215,9 @@ export default function TeamModule({ readOnly = false }: { readOnly?: boolean })
           role: normalizeStaffRole(formData.role),
           active: editingMember.status === "ativo",
         });
+        batch.set(doc(db, "waiterDirectory", restaurantId, "staff", editingMember.id), {
+          restaurantId, name: formData.name.trim(), role: normalizeStaffRole(formData.role), active: editingMember.status === "ativo",
+        });
         await batch.commit();
         setNotice("Cadastro do funcionário atualizado.");
       } else {
@@ -247,8 +250,11 @@ export default function TeamModule({ readOnly = false }: { readOnly?: boolean })
         batch.set(doc(db, "waiterDirectory", waiterRef.id), {
           restaurantId,
           name: formData.name.trim(),
-          role: formData.role,
+          role: normalizeStaffRole(formData.role),
           active: editingMember ? editingMember.status === "ativo" : true,
+        });
+        batch.set(doc(db, "waiterDirectory", restaurantId, "staff", waiterRef.id), {
+          restaurantId, name: formData.name.trim(), role: normalizeStaffRole(formData.role), active: editingMember ? editingMember.status === "ativo" : true,
         });
         batch.set(doc(db, "restaurantStaff", createdAccount.user.uid), {
           restaurantId,
@@ -312,6 +318,7 @@ export default function TeamModule({ readOnly = false }: { readOnly?: boolean })
       const batch = writeBatch(db);
       batch.delete(doc(db, "waiters", member.id));
       batch.delete(doc(db, "waiterDirectory", member.id));
+      batch.delete(doc(db, "waiterDirectory", restaurantId, "staff", member.id));
       if (member.uid) batch.delete(doc(db, "restaurantStaff", member.uid));
       await batch.commit();
       setNotice("Acesso do funcionário removido.");
@@ -331,6 +338,7 @@ export default function TeamModule({ readOnly = false }: { readOnly?: boolean })
       const batch = writeBatch(db);
       batch.update(doc(db, "waiters", member.id), { active });
       batch.update(doc(db, "waiterDirectory", member.id), { active });
+      batch.set(doc(db, "waiterDirectory", restaurantId, "staff", member.id), { restaurantId, name: member.name, role: normalizeStaffRole(member.role), active }, { merge: true });
       if (member.uid) {
         batch.set(doc(db, "restaurantStaff", member.uid), {
           restaurantId,

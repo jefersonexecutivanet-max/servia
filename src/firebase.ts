@@ -1,4 +1,5 @@
 import { initializeApp } from "firebase/app";
+import { initializeAppCheck, ReCaptchaV3Provider } from "firebase/app-check";
 import {
   browserLocalPersistence,
   getAuth,
@@ -21,6 +22,12 @@ const firebaseConfig = {
 };
 
 const app = initializeApp(firebaseConfig);
+if (import.meta.env.VITE_ENABLE_APP_CHECK === "true" && import.meta.env.VITE_RECAPTCHA_SITE_KEY) {
+  initializeAppCheck(app, {
+    provider: new ReCaptchaV3Provider(import.meta.env.VITE_RECAPTCHA_SITE_KEY),
+    isTokenAutoRefreshEnabled: true,
+  });
+}
 const provisioningApp = initializeApp(firebaseConfig, "restaurant-provisioning");
 
 export const auth = getAuth(app);

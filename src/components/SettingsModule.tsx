@@ -19,7 +19,8 @@ import {
 import { updateProfile, updatePassword } from "firebase/auth";
 import { doc, onSnapshot, serverTimestamp, setDoc } from "firebase/firestore";
 import { auth, db } from "../firebase";
-import { testPrinter, getRestaurantPrinterSettings, getUserPrinterSettings } from "../utils/printer";
+import { useRestaurantScope } from "../contexts/RestaurantContext";
+import { testPrinter, getRestaurantPrinterSettings, getUserPrinterSettings, saveRestaurantPrinterSettings as savePrinterCache } from "../utils/printer";
 
 type SettingsSection = "restaurant" | "payment" | "hours" | "notifications" | "printers" | "system" | "account";
 
@@ -75,6 +76,7 @@ const daysOfWeek = [
 ];
 
 export default function SettingsModule() {
+  const { restaurantId } = useRestaurantScope();
   const [activeSection, setActiveSection] = useState<SettingsSection>("restaurant");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
@@ -142,6 +144,17 @@ export default function SettingsModule() {
 
   // Restaurant printer settings (cozinha)
   const [restaurantPrinter, setRestaurantPrinter] = useState(getRestaurantPrinterSettings);
+
+  useEffect(() => {
+    if (!restaurantId) return;
+    return onSnapshot(doc(db, "restaurants", restaurantId, "settings", "printer"), (snapshot) => {
+      const data = snapshot.data();
+      if (!data) return;
+      const settings = { ...getRestaurantPrinterSettings(), ...data, printerType: "browser" as const };
+      setRestaurantPrinter(settings);
+      savePrinterCache(settings);
+    }, (error) => console.error("Erro ao carregar configurações da impressora:", error));
+  }, [restaurantId]);
 
   // User printer settings (caixa)
   const [userPrinter, setUserPrinter] = useState(getUserPrinterSettings);
@@ -300,7 +313,9 @@ export default function SettingsModule() {
   async function saveRestaurantPrinterSettings() {
     setBusy(true);
     try {
-      localStorage.setItem("servia_restaurant_printer", JSON.stringify(restaurantPrinter));
+      if (!restaurantId) throw new Error("Nenhum restaurante selecionado.");
+      await setDoc(doc(db, "restaurants", restaurantId, "settings", "printer"), restaurantPrinter, { merge: true });
+      savePrinterCache(restaurantPrinter);
       showMessage("Configurações da impressora da cozinha salvas com sucesso!");
     } catch (error) {
       console.error("Erro ao salvar configurações da impressora da cozinha:", error);

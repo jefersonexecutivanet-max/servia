@@ -15,9 +15,9 @@ dist-ssr
 *.local
 
 # Environment and secrets
-.env
-.env.local
-.env.example
+.env*
+!.env.example
+*.local
 firebase-service-account.json
 
 # TypeScript build info

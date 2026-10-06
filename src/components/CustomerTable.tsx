@@ -1,3 +1,4 @@
+import { tableDocId } from "../utils/ids";
 import { useEffect, useMemo, useState } from "react";
 import {
   ShoppingBag,
@@ -26,10 +27,12 @@ import {
   where,
   writeBatch,
 } from "firebase/firestore";
-import { db } from "../firebase";
+import { onAuthStateChanged, signInAnonymously } from "firebase/auth";
+import { auth, db } from "../firebase";
 import { useMenuCatalog } from "../hooks/useMenuCatalog";
 import type { Product } from "../types/menu";
 import { formatCurrency } from "../utils/format";
+import { cartItemKey } from "../utils/cart";
 
 type CartItem = {
   product: Product;
@@ -49,12 +52,18 @@ function itemPrice(item: CartItem) {
   return item.product.price + extrasTotal;
 }
 
+function getCartKey(item: CartItem) {
+  return cartItemKey({ productId: item.product.id, extraIds: item.extraIds, notes: item.notes });
+}
+
 export default function CustomerTable({
   tableNumber,
   restaurantId,
+  accessToken,
 }: {
   tableNumber: number;
   restaurantId: string;
+  accessToken?: string;
 }) {
   const { products, loading } = useMenuCatalog(restaurantId);
   const waiterStorageKey = `servia-table-${restaurantId}-${tableNumber}-waiter`;
@@ -74,6 +83,9 @@ export default function CustomerTable({
     localStorage.getItem(waiterStorageKey) || "",
   );
   const [selectedWaiterId, setSelectedWaiterId] = useState(assignedWaiterId);
+  const [customerUid, setCustomerUid] = useState("");
+  const [pendingCall, setPendingCall] = useState(false);
+  const [openOrders, setOpenOrders] = useState<Array<{ id: string; status: string; paymentStatus?: string; items: Array<{ productId: string; name: string; quantity: number; price: number }> }>>([]);
 
   const [actionLoading, setActionLoading] = useState<
     "order" | "waiter" | "bill" | "payment" | null
@@ -88,8 +100,32 @@ export default function CustomerTable({
   }, [products]);
 
   useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      try {
+        const customer = user?.isAnonymous ? user : (await signInAnonymously(auth)).user;
+        setCustomerUid(customer.uid);
+      } catch (error) {
+        console.error("Não foi possível iniciar a sessão do cliente:", error);
+        showMessage("Não foi possível iniciar sua sessão. Tente atualizar a página.");
+      }
+    });
+    return unsubscribe;
+  }, []);
+
+  useEffect(() => {
+    const callRef = doc(db, "tableCalls", `${tableDocId(restaurantId, tableNumber)}_waiter`);
+    return onSnapshot(callRef, (snapshot) => setPendingCall(snapshot.exists() && snapshot.data().status === "pending"), (error) => console.error("Erro ao consultar chamados pendentes:", error));
+  }, [restaurantId, tableNumber]);
+
+  useEffect(() => {
+    if (!customerUid) return;
+    const orders = query(collection(db, "orders"), where("restaurantId", "==", restaurantId), where("tableId", "==", `${tableDocId(restaurantId, tableNumber)}`), where("customerUid", "==", customerUid));
+    return onSnapshot(orders, (snapshot) => setOpenOrders(snapshot.docs.map((item) => ({ id: item.id, status: String(item.data().status || "novo"), paymentStatus: item.data().paymentStatus, items: Array.isArray(item.data().items) ? item.data().items : [] })).filter((order) => order.status !== "cancelado")), (error) => console.error("Erro ao acompanhar pedidos:", error));
+  }, [customerUid, restaurantId, tableNumber]);
+
+  useEffect(() => {
     const activeWaiters = query(
-      collection(db, "waiterDirectory"),
+      collection(db, "waiterDirectory", restaurantId, "staff"),
       where("restaurantId", "==", restaurantId),
       where("active", "==", true),
     );
@@ -115,7 +151,7 @@ export default function CustomerTable({
   }, [restaurantId]);
 
   useEffect(() => {
-    const assignmentRef = doc(db, "waiterTables", `${restaurantId}_${tableNumber}`);
+    const assignmentRef = doc(db, "waiterTables", `${tableDocId(restaurantId, tableNumber)}`);
     return onSnapshot(
       assignmentRef,
       (snapshot) => {
@@ -167,18 +203,21 @@ export default function CustomerTable({
       ),
     [cartItems],
   );
+  const accountTotal = useMemo(() => openOrders.filter((order) => order.paymentStatus !== "paid").reduce((sum, order) => sum + order.items.reduce((lineSum, item) => lineSum + Number(item.quantity || 0) * Number(item.price || 0), 0), 0), [openOrders]);
+  const accountItemCount = useMemo(() => openOrders.filter((order) => order.paymentStatus !== "paid").reduce((sum, order) => sum + order.items.reduce((lineSum, item) => lineSum + Number(item.quantity || 0), 0), 0), [openOrders]);
 
   function upsertCart(item: CartItem) {
+    const key = getCartKey(item);
     setCart((current) => {
       if (item.quantity <= 0) {
         const next = { ...current };
-        delete next[item.product.id];
+        delete next[key];
         return next;
       }
 
       return {
         ...current,
-        [item.product.id]: item,
+        [key]: { ...item, extraIds: [...item.extraIds].sort() },
       };
     });
   }
@@ -189,7 +228,7 @@ export default function CustomerTable({
       return;
     }
 
-    const current = cart[product.id];
+    const current = cart[cartItemKey({ productId: product.id, extraIds: [], notes: "" })];
 
     upsertCart({
       product,
@@ -199,8 +238,8 @@ export default function CustomerTable({
     });
   }
 
-  function changeQuantity(productId: string, delta: number) {
-    const current = cart[productId];
+  function changeQuantity(key: string, delta: number) {
+    const current = cart[key];
 
     if (!current) {
       return;
@@ -228,7 +267,7 @@ export default function CustomerTable({
       let currentWaiterId = assignedWaiterId;
       try {
         const assignment = await getDoc(
-          doc(db, "waiterTables", `${restaurantId}_${tableNumber}`),
+          doc(db, "waiterTables", `${tableDocId(restaurantId, tableNumber)}`),
         );
         currentWaiterId = String(assignment.data()?.waiterId || currentWaiterId);
       } catch (assignmentError) {
@@ -237,14 +276,8 @@ export default function CustomerTable({
       }
       setAssignedWaiterId(currentWaiterId);
 
-      await addDoc(collection(db, "orders"), {
-        restaurantId,
-        tableId: `${restaurantId}_${tableNumber}`,
-        tableNumber,
-        ...(currentWaiterId ? { waiterId: currentWaiterId } : {}),
-        status: "novo",
-        source: "qrcode",
-        items: cartItems.map((item) => ({
+      if (!customerUid) throw new Error("A sessão anônima ainda não está pronta.");
+      const orderItems = cartItems.map((item) => ({
           productId: item.product.id,
           name: item.product.name,
           quantity: item.quantity,
@@ -253,10 +286,27 @@ export default function CustomerTable({
             .filter((extra) => item.extraIds.includes(extra.id))
             .map((extra) => extra.name),
           notes: item.notes,
-        })),
-        total,
-        createdAt: serverTimestamp(),
-      });
+        }));
+      const batch = writeBatch(db);
+      for (let index = 0; index < orderItems.length; index += 10) {
+        const items = orderItems.slice(index, index + 10);
+        const orderTotal = items.reduce((sum, item) => sum + item.quantity * item.price, 0);
+        batch.set(doc(collection(db, "orders")), {
+          restaurantId,
+          tableId: `${tableDocId(restaurantId, tableNumber)}`,
+          tableNumber,
+          ...(currentWaiterId ? { waiterId: currentWaiterId } : {}),
+          customerUid,
+          ...(accessToken ? { accessToken } : {}),
+          status: "novo",
+          source: "qrcode",
+          items,
+          total: orderTotal,
+          createdAt: serverTimestamp(),
+        });
+      }
+      batch.update(doc(db, "tables", `${tableDocId(restaurantId, tableNumber)}`), { lastOrderAt: serverTimestamp() });
+      await batch.commit();
 
       setSent(true);
       setCart({});
@@ -296,25 +346,18 @@ export default function CustomerTable({
 
     try {
       const batch = writeBatch(db);
-      const requestRef = doc(collection(db, requestCollection));
-      const assignmentRef = doc(db, "waiterTables", `${restaurantId}_${tableNumber}`);
+      const requestRef = doc(db, requestCollection, `${tableDocId(restaurantId, tableNumber)}_${requestType}`);
       batch.set(requestRef, {
         restaurantId,
-        tableId: `${restaurantId}_${tableNumber}`,
+        tableId: `${tableDocId(restaurantId, tableNumber)}`,
         tableNumber,
         type: requestType,
+        customerUid,
+        ...(accessToken ? { accessToken } : {}),
         waiterId: selectedWaiter.id,
         waiterName: selectedWaiter.name,
         status: "pending",
         createdAt: serverTimestamp(),
-      });
-      batch.set(assignmentRef, {
-        restaurantId,
-        tableId: `${restaurantId}_${tableNumber}`,
-        tableNumber,
-        waiterId: selectedWaiter.id,
-        waiterName: selectedWaiter.name,
-        updatedAt: serverTimestamp(),
       });
       await batch.commit();
 
@@ -353,16 +396,16 @@ export default function CustomerTable({
       // Sem integração com gateway, a solicitação não confirma que houve pagamento.
       await addDoc(collection(db, "tableReleases"), {
         restaurantId,
-        tableId: `${restaurantId}_${tableNumber}`,
+        tableId: `${tableDocId(restaurantId, tableNumber)}`,
         tableNumber,
-        totalAmount: total,
+        totalAmount: accountTotal,
         paymentMethod: method,
+        ...(accessToken ? { accessToken } : {}),
         status: "pending",
         createdAt: serverTimestamp(),
       });
 
       setShowPayment(false);
-      setSent(true);
       setCart({});
       setCartOpen(false);
 
@@ -424,10 +467,10 @@ export default function CustomerTable({
           <button
             type="button"
             onClick={() => openServiceRequest("waiter")}
-            disabled={actionLoading !== null}
+            disabled={actionLoading !== null || pendingCall}
           >
             <Bell size={19} />
-            {actionLoading === "waiter" ? "Chamando..." : "Chamar garçom"}
+            {actionLoading === "waiter" ? "Chamando..." : pendingCall ? "Chamado enviado, aguardando" : "Chamar garçom"}
           </button>
 
           <button
@@ -526,7 +569,7 @@ export default function CustomerTable({
 
               <div className="customer-product-grid">
                 {filteredProducts.map((product) => {
-                  const quantity = cart[product.id]?.quantity || 0;
+          const quantity = Object.values(cart).filter((item) => item.product.id === product.id).reduce((sum, item) => sum + item.quantity, 0);
 
                   return (
                     <article
@@ -650,7 +693,7 @@ export default function CustomerTable({
 
             <div className="cart-items">
               {cartItems.map((item) => (
-                <div className="cart-item" key={item.product.id}>
+                <div className="cart-item" key={getCartKey(item)}>
                   <div>
                     <strong>{item.product.name}</strong>
                     <span>{formatCurrency(itemPrice(item))}</span>
@@ -661,7 +704,7 @@ export default function CustomerTable({
                     <button
                       type="button"
                       onClick={() =>
-                        changeQuantity(item.product.id, -1)
+                        changeQuantity(getCartKey(item), -1)
                       }
                       aria-label={`Remover ${item.product.name}`}
                     >
@@ -673,7 +716,7 @@ export default function CustomerTable({
                     <button
                       type="button"
                       onClick={() =>
-                        changeQuantity(item.product.id, 1)
+                        changeQuantity(getCartKey(item), 1)
                       }
                       aria-label={`Adicionar ${item.product.name}`}
                     >
@@ -719,7 +762,7 @@ export default function CustomerTable({
       {customizing && (
         <CustomizeModal
           product={customizing}
-          current={cart[customizing.id]}
+          current={Object.values(cart).find((item) => item.product.id === customizing.id)}
           onClose={() => setCustomizing(null)}
           onConfirm={(item) => {
             upsertCart(item);
@@ -730,8 +773,8 @@ export default function CustomerTable({
 
       {showPayment && (
         <PaymentModal
-          total={total}
-          itemsCount={totalItems}
+          total={accountTotal}
+          itemsCount={accountItemCount}
           onClose={() => setShowPayment(false)}
           onPayment={processPayment}
           loading={actionLoading === "payment"}

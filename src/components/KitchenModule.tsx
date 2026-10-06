@@ -14,96 +14,22 @@ import {
   doc,
   onSnapshot,
   query,
+  orderBy,
+  limit,
+  Timestamp,
   updateDoc,
+  runTransaction,
+  serverTimestamp,
   where,
-  type DocumentData,
-  type QueryDocumentSnapshot,
 } from "firebase/firestore";
-import { db } from "../firebase";
+import { auth, db } from "../firebase";
 import { formatCurrency } from "../utils/format";
-import { generatePrintContent, printContent as printToPrinter, shouldAutoPrintOrders, getRestaurantPrinterSettings } from "../utils/printer";
+import { generatePrintContent, printContent as printToPrinter, shouldAutoPrintOrders, getRestaurantPrinterSettings, saveRestaurantPrinterSettings } from "../utils/printer";
 import type { Order, OrderStatus } from "../types/order";
 import { useRestaurantScope } from "../contexts/RestaurantContext";
+import { convertOrder, formatTime, statusClass, statusLabel, shouldClaimOrderPrint } from "../utils/orders";
 
 type Filter = "todos" | OrderStatus;
-
-function formatTime(date?: Date) {
-  if (!date) {
-    return "--:--";
-  }
-
-  return date.toLocaleTimeString("pt-BR", {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-function statusLabel(status: OrderStatus) {
-  switch (status) {
-    case "novo":
-      return "Novo";
-
-    case "preparando":
-      return "Preparando";
-
-    case "pronto":
-      return "Pronto";
-
-    case "entregue":
-      return "Entregue";
-
-    case "cancelado":
-      return "Cancelado";
-
-    default:
-      return status;
-  }
-}
-
-function statusClass(status: OrderStatus) {
-  switch (status) {
-    case "novo":
-      return "new";
-
-    case "preparando":
-      return "preparing";
-
-    case "pronto":
-      return "ready";
-
-    case "entregue":
-      return "delivered";
-
-    case "cancelado":
-      return "cancelled";
-
-    default:
-      return "";
-  }
-}
-
-function convertOrder(
-  snapshot: QueryDocumentSnapshot<DocumentData>,
-): Order {
-  const data = snapshot.data();
-
-  const createdAt =
-    data.createdAt?.toDate instanceof Function
-      ? data.createdAt.toDate()
-      : undefined;
-
-  return {
-    id: snapshot.id,
-    tableNumber: Number(data.tableNumber || 0),
-    status: (data.status || "novo") as OrderStatus,
-    source: data.source,
-    items: Array.isArray(data.items)
-      ? data.items
-      : [],
-    total: Number(data.total || 0),
-    createdAt,
-  };
-}
 
 async function printOrder(order: Order): Promise<boolean> {
   const settings = getRestaurantPrinterSettings();
@@ -130,6 +56,7 @@ export default function KitchenModule() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [updatingId, setUpdatingId] = useState("");
+  const [refreshVersion, setRefreshVersion] = useState(0);
   const printedOrdersRef = useRef<Set<string>>(new Set());
   const printingOrdersRef = useRef<Set<string>>(new Set());
   const preparingOrdersRef = useRef<Set<string>>(new Set());
@@ -142,6 +69,9 @@ export default function KitchenModule() {
     const ordersQuery = query(
       collection(db, "orders"),
       where("restaurantId", "==", restaurantId),
+      where("createdAt", ">=", Timestamp.fromDate(new Date(Date.now() - 24 * 60 * 60 * 1000))),
+      orderBy("createdAt", "desc"),
+      limit(200),
     );
 
     const unsubscribe = onSnapshot(
@@ -171,14 +101,17 @@ export default function KitchenModule() {
         // Print each new order once, as soon as it reaches the kitchen.
         if (shouldAutoPrintOrders()) {
           nextOrders.forEach((order) => {
-            if (order.status === "novo" && !printedOrdersRef.current.has(order.id) && !printingOrdersRef.current.has(order.id)) {
+            if (shouldClaimOrderPrint(order) && !printedOrdersRef.current.has(order.id) && !printingOrdersRef.current.has(order.id)) {
               printingOrdersRef.current.add(order.id);
-              void printOrder(order)
-                .then((printed) => {
-                  if (printed) {
-                    printedOrdersRef.current.add(order.id);
-                  }
-                })
+              void runTransaction(db, async (transaction) => {
+                const orderRef = doc(db, "orders", order.id);
+                const latest = await transaction.get(orderRef);
+                if (!latest.exists() || latest.data().printedAt || latest.data().status === "cancelado") return false;
+                transaction.update(orderRef, { printedAt: serverTimestamp(), printedBy: auth.currentUser?.uid || "" });
+                return true;
+              }).then(async (claimed) => {
+                if (claimed && await printOrder(order)) printedOrdersRef.current.add(order.id);
+              })
                 .catch((printError) => console.error("Erro ao imprimir comanda automaticamente:", printError))
                 .finally(() => printingOrdersRef.current.delete(order.id));
             }
@@ -198,8 +131,12 @@ export default function KitchenModule() {
       },
     );
 
-    return () => unsubscribe();
-  }, [restaurantId]);
+    const unsubscribePrinterSettings = onSnapshot(doc(db, "restaurants", restaurantId, "settings", "printer"), (snapshot) => {
+      if (snapshot.exists()) saveRestaurantPrinterSettings({ ...getRestaurantPrinterSettings(), ...snapshot.data(), printerType: "browser" });
+    }, (settingsError) => console.error("Erro ao carregar a configuração da impressora:", settingsError));
+
+    return () => { unsubscribe(); unsubscribePrinterSettings(); };
+  }, [restaurantId, refreshVersion]);
 
   const filteredOrders = useMemo(() => {
     if (filter === "todos") {
@@ -223,12 +160,8 @@ export default function KitchenModule() {
     (order) => order.status === "pronto",
   ).length;
 
-  const totalSales = orders
-    .filter((order) => order.paymentStatus === "paid")
-    .reduce((sum, order) => sum + order.total, 0);
-
   function reloadOrders() {
-    window.location.reload();
+    setRefreshVersion((version) => version + 1);
   }
 
   async function markAsReady(order: Order) {
@@ -314,16 +247,6 @@ export default function KitchenModule() {
           </div>
         </div>
 
-        <div className="orders-summary-card">
-          <div className="orders-summary-icon revenue">
-            <CheckCircle2 size={20} />
-          </div>
-
-          <div>
-            <strong>{formatCurrency(totalSales)}</strong>
-            <span>Total vendido</span>
-          </div>
-        </div>
       </div>
 
       <div className="orders-toolbar">
