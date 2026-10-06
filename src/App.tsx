@@ -50,8 +50,7 @@ import {
   updateDoc,
   where,
 } from "firebase/firestore";
-import { httpsCallable } from "firebase/functions";
-import { auth, db, functions } from "./firebase";
+import { auth, db } from "./firebase";
 
 import CustomerTable from "./components/CustomerTable";
 const TablesModule = lazy(() => import("./components/TablesModule"));
@@ -73,6 +72,7 @@ import type { TableStatus } from "./types/table";
 import { normalizeStaffRole, type StaffRole } from "./types/roles";
 import { calculateOrderTotal } from "./utils/orders";
 import { useOnlineStatus } from "./hooks/useOnlineStatus";
+import { employeeApi } from "./utils/employeeApi";
 
 type ModuleName =
   | "Dashboard"
@@ -153,13 +153,10 @@ function EmployeePinLogin({
     setBusy(true);
     setError("");
     try {
-      const loginEmployee = httpsCallable<{
-        employeeCode?: string; pin: string; restaurantId?: string; waiterId?: string;
-      }, { token: string }>(functions, "loginEmployee");
-      const result = await loginEmployee(isQrLogin
+      const result = await employeeApi<{ token: string }>("login", isQrLogin
         ? { restaurantId, waiterId, pin }
-        : { employeeCode, pin });
-      await signInWithCustomToken(auth, result.data.token);
+        : { employeeCode, pin }, false);
+      await signInWithCustomToken(auth, result.token);
     } catch (loginError) {
       const code = typeof loginError === "object" && loginError && "code" in loginError
         ? String((loginError as { code: string }).code)
@@ -1730,7 +1727,7 @@ function EmployeePinChangeDialog({ onClose }: { onClose: () => void }) {
     if (newPin !== confirmPin) { setMessage("Os PINs novos não coincidem."); return; }
     setBusy(true);
     try {
-      await httpsCallable(functions, "changeOwnEmployeePin")({ oldPin, newPin });
+      await employeeApi("change-pin", { oldPin, newPin });
       setMessage("PIN alterado com sucesso.");
       setOldPin(""); setNewPin(""); setConfirmPin("");
     } catch (error) {
@@ -1768,8 +1765,7 @@ function WaiterPortal({ user, waiterId, restaurantId }: { user: User; waiterId: 
     }
     setPinBusy(true);
     try {
-      const changePin = httpsCallable(functions, "changeOwnEmployeePin");
-      await changePin({ oldPin, newPin });
+      await employeeApi("change-pin", { oldPin, newPin });
       setPinMessage("PIN alterado com sucesso.");
       setOldPin("");
       setNewPin("");

@@ -10,7 +10,6 @@ import {
   persistentLocalCache,
   persistentMultipleTabManager,
 } from "firebase/firestore";
-import { getFunctions } from "firebase/functions";
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -33,7 +32,6 @@ const provisioningApp = initializeApp(firebaseConfig, "restaurant-provisioning")
 
 export const auth = getAuth(app);
 export const restaurantProvisioningAuth = getAuth(provisioningApp);
-export const functions = getFunctions(app, "us-central1");
 export const db = initializeFirestore(app, {
   localCache: persistentLocalCache({
     tabManager: persistentMultipleTabManager(),

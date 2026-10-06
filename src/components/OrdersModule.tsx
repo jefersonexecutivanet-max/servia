@@ -19,7 +19,7 @@ import {
 import { db } from "../firebase";
 import { formatCurrency } from "../utils/format";
 import type { Order, OrderStatus } from "../types/order";
-import { convertOrder, formatTime, statusClass, statusLabel } from "../utils/orders";
+import { convertOrder, formatTime, statusClass, statusLabel, getReliableTotal } from "../utils/orders";
 import { useRestaurantScope } from "../contexts/RestaurantContext";
 
 type Filter = "todos" | OrderStatus;
@@ -339,7 +339,7 @@ export default function OrdersModule() {
                   <div>
                     <span>TOTAL</span>
                     <strong>
-                      {formatCurrency(order.total)}
+                      {formatCurrency(getReliableTotal(order))}
                     </strong>
                   </div>
                 </div>

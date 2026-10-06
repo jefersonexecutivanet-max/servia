@@ -11,7 +11,6 @@ import {
   X,
 } from "lucide-react";
 import { QRCodeCanvas } from "qrcode.react";
-import { httpsCallable } from "firebase/functions";
 import {
   collection,
   onSnapshot,
@@ -20,7 +19,8 @@ import {
   type DocumentData,
   type QueryDocumentSnapshot,
 } from "firebase/firestore";
-import { db, functions } from "../firebase";
+import { db } from "../firebase";
+import { employeeApi } from "../utils/employeeApi";
 import { useRestaurantScope } from "../contexts/RestaurantContext";
 import { normalizeStaffRole, STAFF_ROLE_LABELS, type StaffRole } from "../types/roles";
 
@@ -165,8 +165,7 @@ export default function TeamModule({ readOnly = false }: { readOnly?: boolean })
     setNotice("");
     try {
       if (editingMember) {
-        const updateEmployee = httpsCallable(functions, "updateEmployee");
-        await updateEmployee({
+        await employeeApi("update", {
           restaurantId,
           employeeId: editingMember.id,
           name: formData.name.trim(),
@@ -176,26 +175,27 @@ export default function TeamModule({ readOnly = false }: { readOnly?: boolean })
         });
         setNotice(formData.pin ? "Cadastro e PIN do funcionário atualizados." : "Cadastro do funcionário atualizado.");
       } else {
-        const createEmployee = httpsCallable<{
-          restaurantId: string; name: string; role: StaffRole; pin: string;
-        }, { id: string; employeeCode: string }>(functions, "createEmployee");
-        const result = await createEmployee({
+        const result = await employeeApi<{ id: string; employeeCode: string }>("create", {
           restaurantId,
           name: formData.name.trim(),
           role: normalizeStaffRole(formData.role),
           pin: formData.pin,
         });
-        showActivation(formData.name.trim(), result.data.id, "", result.data.employeeCode);
+        showActivation(formData.name.trim(), result.id, "", result.employeeCode);
       }
       setShowModal(false);
-    } catch (saveError) {
+} catch (saveError) {
       console.error("Erro ao salvar funcionário:", saveError);
       const errorCode = typeof saveError === "object" && saveError && "code" in saveError
         ? String((saveError as { code: string }).code)
         : "";
-      setError(errorCode === "functions/internal" || errorCode === "functions/unavailable"
-        ? "NÃ£o foi possÃ­vel conectar Ã  funÃ§Ã£o de cadastro. Publique as Cloud Functions no projeto Firebase usado pelo Vercel e confira o CORS."
-        : saveError instanceof Error ? saveError.message : "NÃ£o foi possÃ­vel salvar o cadastro.");
+      setError(
+        errorCode === "functions/internal" || errorCode === "functions/unavailable"
+          ? "Não foi possível conectar à função de cadastro. Publique as Cloud Functions no projeto Firebase usado pelo Vercel e confira o CORS."
+          : errorCode === "configuration"
+          ? "Não foi possível conectar ao servidor de cadastro por PIN. Confira as variáveis do Vercel."
+          : saveError instanceof Error ? saveError.message : "Não foi possível salvar o cadastro."
+      );
     } finally {
       setBusy(false);
     }
@@ -210,8 +210,7 @@ export default function TeamModule({ readOnly = false }: { readOnly?: boolean })
     setBusy(true);
     setError("");
     try {
-      const deleteEmployee = httpsCallable(functions, "deleteEmployee");
-      await deleteEmployee({ restaurantId, employeeId: member.id });
+      await employeeApi("delete", { restaurantId, employeeId: member.id });
       setNotice("Acesso do funcionário removido.");
     } catch (deleteError) {
       console.error("Erro ao remover funcionário:", deleteError);
@@ -226,8 +225,7 @@ export default function TeamModule({ readOnly = false }: { readOnly?: boolean })
     setError("");
     try {
       const active = member.status !== "ativo";
-      const updateEmployee = httpsCallable(functions, "updateEmployee");
-      await updateEmployee({ restaurantId, employeeId: member.id, active });
+      await employeeApi("update", { restaurantId, employeeId: member.id, active });
       setNotice(member.status === "ativo" ? "Acesso desativado." : "Acesso ativado.");
     } catch (statusError) {
       console.error("Erro ao alterar acesso:", statusError);

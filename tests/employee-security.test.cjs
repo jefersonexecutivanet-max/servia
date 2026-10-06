@@ -9,7 +9,7 @@ const {
   normalizeEmployeeCode,
   validatePin,
   verifyPin,
-} = require("../security.cjs");
+} = require("../server/security.cjs");
 
 test("employee code is normalized and scoped to a generated staff id", () => {
   const id = "Abcdef1234567890Ghij";

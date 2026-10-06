@@ -27,18 +27,19 @@ import { formatCurrency } from "../utils/format";
 import { generatePrintContent, printContent as printToPrinter, shouldAutoPrintOrders, getRestaurantPrinterSettings, saveRestaurantPrinterSettings } from "../utils/printer";
 import type { Order, OrderStatus } from "../types/order";
 import { useRestaurantScope } from "../contexts/RestaurantContext";
-import { convertOrder, formatTime, statusClass, statusLabel, shouldClaimOrderPrint } from "../utils/orders";
+import { convertOrder, formatTime, statusClass, statusLabel, shouldClaimOrderPrint, getReliableTotal } from "../utils/orders";
 
 type Filter = "todos" | OrderStatus;
 
 async function printOrder(order: Order): Promise<boolean> {
   const settings = getRestaurantPrinterSettings();
+  const reliableTotal = getReliableTotal(order);
   const htmlContent = generatePrintContent(
     "COMANDA",
     order.id.slice(0, 8).toUpperCase(),
     order.tableNumber,
     order.items,
-    order.total,
+    reliableTotal,
     {
       "Status": statusLabel(order.status),
       "Origem": order.source === "qrcode" ? "QR Code" : "Manual",
@@ -362,7 +363,7 @@ export default function KitchenModule() {
                 <div>
                   <span>TOTAL</span>
                   <strong>
-                    {formatCurrency(order.total)}
+                    {formatCurrency(getReliableTotal(order))}
                   </strong>
                 </div>
               </div>
