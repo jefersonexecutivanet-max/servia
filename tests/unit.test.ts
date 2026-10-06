@@ -19,6 +19,8 @@ describe("order and cart helpers", () => {
 
   it("normalizes staff roles and only claims unprinted, non-cancelled orders", () => {
     expect(normalizeStaffRole("caixa")).toBe("CASHIER");
+    expect(normalizeStaffRole("Chefe do Salão")).toBe("FLOOR_MANAGER");
+    expect(normalizeStaffRole("Garçom/Garçonete")).toBe("WAITER");
     expect(shouldClaimOrderPrint({ status: "novo" })).toBe(true);
     expect(shouldClaimOrderPrint({ status: "novo", printedAt: new Date() })).toBe(false);
     expect(shouldClaimOrderPrint({ status: "cancelado" })).toBe(false);

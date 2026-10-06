@@ -569,20 +569,22 @@ function Sidebar({
     },
   ];
 
-  const mainMenu = staffRole === "KITCHEN"
-    ? baseMainMenu.filter((item) => item.label === "Cozinha")
-    : staffRole === "CASHIER"
-      ? baseMainMenu.filter((item) => item.label === "Mesas")
-      : baseMainMenu;
-  const managementMenu = staffRole === "CASHIER"
-    ? [{ label: "Caixa" as ModuleName, icon: CircleDollarSign }]
+  const mainMenu = staffRole === "FLOOR_MANAGER"
+    ? baseMainMenu.filter((item) => ["Mesas", "Pedidos", "Atendimento"].includes(item.label))
     : staffRole === "KITCHEN"
-      ? []
+      ? baseMainMenu.filter((item) => item.label === "Cozinha")
+      : staffRole === "CASHIER"
+        ? baseMainMenu.filter((item) => item.label === "Mesas")
+        : baseMainMenu;
+  const managementMenu = staffRole === "FLOOR_MANAGER" || staffRole === "KITCHEN"
+    ? []
+    : staffRole === "CASHIER"
+      ? [{ label: "Caixa" as ModuleName, icon: CircleDollarSign }]
       : baseManagementMenu;
   const systemMenu: {
     label: ModuleName;
     icon: ElementType;
-  }[] = systemAdmin || staffRole === "KITCHEN" || staffRole === "CASHIER" ? [] : [
+  }[] = systemAdmin || staffRole === "KITCHEN" || staffRole === "CASHIER" || staffRole === "FLOOR_MANAGER" ? [] : [
     {
       label: "ConfiguraÃ§Ãµes",
       icon: Settings,
@@ -1480,6 +1482,8 @@ function AdminApplication({
         ? "Restaurantes"
         : staffRole === "KITCHEN"
           ? "Cozinha"
+          : staffRole === "FLOOR_MANAGER"
+            ? "Mesas"
           : staffRole === "CASHIER"
             ? "Caixa"
             : window.location.pathname.replace(/\/+$/, "").toLowerCase() === "/cozinha"
@@ -1502,6 +1506,17 @@ function AdminApplication({
   }
 
   function renderContent() {
+    const allowedModules = staffRole === "CASHIER"
+      ? ["Mesas", "Caixa"]
+      : staffRole === "KITCHEN"
+        ? ["Cozinha"]
+        : staffRole === "FLOOR_MANAGER"
+          ? ["Mesas", "Pedidos", "Atendimento"]
+          : null;
+    if (allowedModules && !allowedModules.includes(active)) {
+      return <RestrictedAccessPage message="Este módulo não está disponível para a função vinculada à sua conta." />;
+    }
+
     if (active === "Restaurantes" && systemAdmin) {
       return (
         <RestaurantsModule
@@ -1536,7 +1551,7 @@ function AdminApplication({
     }
 
     if (active === "Atendimento") {
-      return <WaiterModule user={user} showTurnover />;
+      return <WaiterModule user={user} showTurnover={staffRole !== "FLOOR_MANAGER"} />;
     }
 
     if (active === "CardÃ¡pio") {

@@ -66,7 +66,7 @@ function convertMember(
 
 const emptyForm: WaiterForm = {
   name: "",
-  role: "MANAGER",
+  role: "WAITER",
   employeeNumber: "",
   email: "",
   temporaryPassword: "",
