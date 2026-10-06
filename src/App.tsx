@@ -121,9 +121,14 @@ function getTableClass(status: TableStatus) {
 }
 
 const ownerIdentity = {
-  uid: import.meta.env.VITE_OWNER_UID || "",
   email: import.meta.env.VITE_OWNER_EMAIL || "",
 };
+
+function isSystemOwner(user: Pick<User, "email" | "emailVerified"> | null | undefined): boolean {
+  if (!user || !ownerIdentity.email) return false;
+  return user.email?.toLocaleLowerCase("pt-BR") === ownerIdentity.email.toLocaleLowerCase("pt-BR")
+    && user.emailVerified;
+}
 
 /* =========================================================
    LOGIN
@@ -1831,10 +1836,7 @@ export default function App() {
 
           startTransition(() => setLoading(true));
           try {
-            if (
-              currentUser.uid === ownerIdentity.uid &&
-              currentUser.email === ownerIdentity.email
-            ) {
+            if (isSystemOwner(currentUser)) {
               setAccess("admin");
             } else {
               const restaurantSnapshot = await getDoc(doc(db, "restaurants", currentUser.uid));
@@ -1937,7 +1939,7 @@ export default function App() {
     }
 
     // NÃ£o verificar pagamento se for o admin
-    if (user.uid === ownerIdentity.uid && user.email === ownerIdentity.email) {
+    if (isSystemOwner(user)) {
       return;
     }
 
@@ -2071,7 +2073,7 @@ export default function App() {
   return (
     <AdminApplication
       user={user}
-      systemAdmin={user.uid === ownerIdentity.uid}
+      systemAdmin={isSystemOwner(user)}
       staffRole={staffRole}
       restaurantId={restaurantId}
       onSelectRestaurant={selectRestaurant}

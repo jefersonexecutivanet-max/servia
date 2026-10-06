@@ -5,12 +5,11 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    // ATENÇÃO: Valores hardcoded aqui. Atualize se o owner mudar.
-    // Para usar valores do ambiente, o frontend usa VITE_OWNER_UID e VITE_OWNER_EMAIL.
+    // System owner uses the verified email below; restaurant owners are separate.
     function isOwner() {
       return signedIn()
-        && request.auth.uid == 'FOuQD7ivuuVAfDZwlsjaU2Lte753'
-        && request.auth.token.email == 'finho60@hotmail.com';
+        && request.auth.token.email == 'jeferson.executiva.net@gmail.com'
+        && request.auth.token.email_verified == true;
     }
 
     function isActiveRestaurantOwner(restaurantId) {
