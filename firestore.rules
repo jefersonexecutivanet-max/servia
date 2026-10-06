@@ -5,9 +5,10 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    // Proprietário do sistema; atualize este e-mail se a conta mudar.
+    // Proprietário do sistema; atualize UID e e-mail se a conta mudar.
     function isOwner() {
       return signedIn()
+        && request.auth.uid == 'KVoJiEGKnnceyADEqFhcflynohr2'
         && request.auth.token.email == 'finho60@hotmail.com';
     }
 

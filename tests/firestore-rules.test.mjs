@@ -258,18 +258,20 @@ test("garçom desativado perde acesso mesmo com uma sessão ainda válida", asyn
 });
 
 test("system administrator manages restaurants and staff", async () => {
-  const db = testEnvironment.authenticatedContext("firebase-active-account", { email: "finho60@hotmail.com", email_verified: false }).firestore();
+  const db = testEnvironment.authenticatedContext("KVoJiEGKnnceyADEqFhcflynohr2", { email: "finho60@hotmail.com", email_verified: false }).firestore();
   await assertSucceeds(getDoc(doc(db, "waiters/waiter-1")));
   await assertSucceeds(getDocs(collection(db, "tableCalls")));
   await assertSucceeds(setDoc(doc(db, "menuItems/item-1"), { name: "Juice" }));
   await assertSucceeds(setDoc(doc(db, "restaurants/new-restaurant"), { name: "New restaurant", cnpj: "12345678000199", ownerEmail: "new@example.com", status: "pending_payment", paymentStatus: "pending" }));
   assert.equal((await getDocs(collection(db, "restaurants"))).size, 3);
-  await assertSucceeds(setDoc(doc(db, "restaurants/firebase-active-account"), { restaurant: { name: "Servia Restaurant", cnpj: "00000000000000" }, payment: { pixKey: "pix@example.test" } }));
+  await assertSucceeds(setDoc(doc(db, "restaurants/KVoJiEGKnnceyADEqFhcflynohr2"), { restaurant: { name: "Servia Restaurant", cnpj: "00000000000000" }, payment: { pixKey: "pix@example.test" } }));
 });
 
-test("system owner is identified by the active account email", async () => {
-  const owner = testEnvironment.authenticatedContext("firebase-active-account", { email: "finho60@hotmail.com", email_verified: false }).firestore();
-  const wrongEmail = testEnvironment.authenticatedContext("other-uid", { email: "other@example.com", email_verified: true }).firestore();
+test("system owner requires the configured uid and email", async () => {
+  const owner = testEnvironment.authenticatedContext("KVoJiEGKnnceyADEqFhcflynohr2", { email: "finho60@hotmail.com", email_verified: false }).firestore();
+  const wrongUid = testEnvironment.authenticatedContext("other-uid", { email: "finho60@hotmail.com", email_verified: true }).firestore();
+  const wrongEmail = testEnvironment.authenticatedContext("KVoJiEGKnnceyADEqFhcflynohr2", { email: "other@example.com", email_verified: true }).firestore();
+  await assertFails(getDoc(doc(wrongUid, "waiters/waiter-1")));
   await assertFails(getDoc(doc(wrongEmail, "waiters/waiter-1")));
   await assertSucceeds(getDoc(doc(owner, "waiters/waiter-1")));
   await assertFails(setDoc(doc(wrongEmail, "restaurants/other"), { restaurant: { name: "Unauthorized" } }));

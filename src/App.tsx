@@ -120,10 +120,10 @@ function getTableClass(status: TableStatus) {
   return "dashboard-table free";
 }
 
-const systemOwnerEmail = "finho60@hotmail.com";
+const systemOwnerUid = "KVoJiEGKnnceyADEqFhcflynohr2";
 
 function isSystemOwner(user: Pick<User, "uid" | "email"> | null | undefined): boolean {
-  return user?.email?.toLocaleLowerCase("pt-BR") === systemOwnerEmail;
+  return user?.uid === systemOwnerUid;
 }
 
 /* =========================================================
