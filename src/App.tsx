@@ -120,13 +120,10 @@ function getTableClass(status: TableStatus) {
   return "dashboard-table free";
 }
 
-const ownerIdentity = {
-  email: import.meta.env.VITE_OWNER_EMAIL || "",
-};
+const systemOwnerEmail = "finho60@hotmail.com";
 
 function isSystemOwner(user: Pick<User, "uid" | "email"> | null | undefined): boolean {
-  if (!user || !ownerIdentity.email) return false;
-  return user.email?.toLocaleLowerCase("pt-BR") === ownerIdentity.email.toLocaleLowerCase("pt-BR");
+  return user?.email?.toLocaleLowerCase("pt-BR") === systemOwnerEmail;
 }
 
 /* =========================================================
