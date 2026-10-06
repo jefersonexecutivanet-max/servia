@@ -48,6 +48,8 @@ beforeEach(async () => {
       setDoc(doc(db, "waiterDirectory/restaurant-a/staff/waiter-1"), { restaurantId: "restaurant-a", name: "Ana", role: "WAITER", active: true }),
       setDoc(doc(db, "waiterDirectory/restaurant-a/staff/waiter-inactive"), { restaurantId: "restaurant-a", name: "Caio", role: "WAITER", active: false }),
       setDoc(doc(db, "waiterDirectory/restaurant-b/staff/waiter-2"), { restaurantId: "restaurant-b", name: "Bruno", role: "WAITER", active: true }),
+      setDoc(doc(db, "employeeSecrets/waiter-pin"), { pinHash: "never-readable-by-client" }),
+      setDoc(doc(db, "employeeCodes/FUNC-ABCDEFGHIJKLMNOPQRST"), { employeeId: "waiter-1", restaurantId: "restaurant-a", active: true }),
       setDoc(doc(db, "waiters/waiter-1"), { restaurantId: "restaurant-a", name: "Ana", role: "Garçom", employeeNumber: "101", email: "ana@example.com", uid: "auth-ana", active: true }),
       setDoc(doc(db, "waiters/waiter-2"), { restaurantId: "restaurant-b", name: "Bruno", role: "Garçom", employeeNumber: "102", email: "bruno@example.com", uid: "auth-bruno", active: true }),
       setDoc(doc(db, "waiters/waiter-inactive"), { restaurantId: "restaurant-a", name: "Caio", role: "Garçom", employeeNumber: "103", email: "caio@example.com", uid: "auth-caio", active: false }),
@@ -118,6 +120,21 @@ test("cliente pode listar garçons ativos, mas não ler dados privados", async (
   await assertFails(getDocs(collection(db, "waiterDirectory")));
   await assertFails(getDoc(doc(db, "waiters/waiter-1")));
   await assertFails(getDoc(doc(db, "tableCalls/call-1")));
+});
+
+test("PIN employee account can use assigned data without an email and cannot read PIN storage", async () => {
+  await testEnvironment.withSecurityRulesDisabled(async (context) => {
+    await updateDoc(doc(context.firestore(), "waiters/waiter-1"), { uid: "pin-staff", email: "" });
+  });
+  const db = testEnvironment.authenticatedContext("pin-staff", {
+    employee: true,
+    employeeId: "waiter-1",
+    restaurantId: "restaurant-a",
+    role: "WAITER",
+  }).firestore();
+  await assertSucceeds(getDoc(doc(db, "tableCalls/call-1")));
+  await assertFails(getDoc(doc(db, "employeeSecrets/waiter-pin")));
+  await assertFails(getDoc(doc(db, "employeeCodes/FUNC-ABCDEFGHIJKLMNOPQRST")));
 });
 
 test("cliente anônimo não pode reatribuir a mesa a outro garçom", async () => {

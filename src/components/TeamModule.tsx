@@ -11,20 +11,16 @@ import {
   X,
 } from "lucide-react";
 import { QRCodeCanvas } from "qrcode.react";
-import { createUserWithEmailAndPassword, deleteUser, signOut } from "firebase/auth";
+import { httpsCallable } from "firebase/functions";
 import {
   collection,
-  doc,
-  getDocs,
   onSnapshot,
   query,
-  serverTimestamp,
   where,
-  writeBatch,
   type DocumentData,
   type QueryDocumentSnapshot,
 } from "firebase/firestore";
-import { db, restaurantProvisioningAuth } from "../firebase";
+import { db, functions } from "../firebase";
 import { useRestaurantScope } from "../contexts/RestaurantContext";
 import { normalizeStaffRole, STAFF_ROLE_LABELS, type StaffRole } from "../types/roles";
 
@@ -33,6 +29,8 @@ interface TeamMember {
   name: string;
   role: string;
   employeeNumber: string;
+  employeeCode: string;
+  pinEnabled: boolean;
   status: "ativo" | "inativo";
   uid: string;
   email: string;
@@ -40,7 +38,7 @@ interface TeamMember {
   hireDate?: Date;
 }
 
-type WaiterForm = Pick<TeamMember, "name" | "role" | "employeeNumber" | "email"> & { temporaryPassword: string };
+type WaiterForm = Pick<TeamMember, "name" | "role"> & { pin: string };
 
 const employeeRoles = Object.entries(STAFF_ROLE_LABELS) as [StaffRole, string][];
 
@@ -53,6 +51,8 @@ function convertMember(
     name: String(data.name || "Funcionário"),
     role: normalizeStaffRole(data.role),
     employeeNumber: String(data.employeeNumber || ""),
+    employeeCode: String(data.employeeCode || data.employeeNumber || ""),
+    pinEnabled: data.pinEnabled === true,
     status: data.active === false ? "inativo" : "ativo",
     uid: String(data.uid || ""),
     email: String(data.email || ""),
@@ -67,9 +67,7 @@ function convertMember(
 const emptyForm: WaiterForm = {
   name: "",
   role: "WAITER",
-  employeeNumber: "",
-  email: "",
-  temporaryPassword: "",
+  pin: "",
 };
 
 export default function TeamModule({ readOnly = false }: { readOnly?: boolean }) {
@@ -82,7 +80,7 @@ export default function TeamModule({ readOnly = false }: { readOnly?: boolean })
   const [activationUrl, setActivationUrl] = useState("");
   const [activationName, setActivationName] = useState("");
   const [activationEmail, setActivationEmail] = useState("");
-  const [activationTemporaryPassword, setActivationTemporaryPassword] = useState("");
+  const [activationEmployeeCode, setActivationEmployeeCode] = useState("");
   const [copied, setCopied] = useState(false);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -115,30 +113,6 @@ export default function TeamModule({ readOnly = false }: { readOnly?: boolean })
     );
   }, [restaurantId]);
 
-  useEffect(() => {
-    if (!restaurantId || members.length === 0 || readOnly) {
-      return;
-    }
-
-    const batch = writeBatch(db);
-    let linkedAccounts = 0;
-    members.forEach((member) => {
-      if (!member.uid) return;
-      batch.set(doc(db, "restaurantStaff", member.uid), {
-        restaurantId,
-        waiterId: member.id,
-        role: member.role,
-        active: member.status === "ativo",
-      });
-      linkedAccounts += 1;
-    });
-    if (linkedAccounts > 0) {
-      void batch.commit().catch((syncError) => {
-        console.error("Erro ao sincronizar acesso da equipe:", syncError);
-      });
-    }
-  }, [members, restaurantId, readOnly]);
-
   const filteredMembers = members.filter((member) =>
     `${member.name} ${member.employeeNumber}`
       .toLowerCase()
@@ -159,31 +133,30 @@ export default function TeamModule({ readOnly = false }: { readOnly?: boolean })
     setFormData({
       name: member.name,
       role: member.role,
-      employeeNumber: member.employeeNumber,
-      email: member.email,
-      temporaryPassword: "",
+      pin: "",
     });
     setError("");
     setShowModal(true);
   }
 
-  function showActivation(memberName: string, waiterId: string, memberEmail: string, temporaryPassword = "") {
+  function showActivation(memberName: string, waiterId: string, memberEmail = "", employeeCode = "") {
     const url = new URL(`/garcom/${encodeURIComponent(restaurantId)}/${encodeURIComponent(waiterId)}`, window.location.origin);
-    url.searchParams.set("email", memberEmail);
+    if (memberEmail) url.searchParams.set("email", memberEmail);
     setActivationName(memberName);
     setActivationEmail(memberEmail);
-    setActivationTemporaryPassword(temporaryPassword);
+    setActivationEmployeeCode(employeeCode);
     setActivationUrl(url.toString());
     setCopied(false);
   }
 
   async function handleSaveMember() {
-    if (!formData.name.trim() || !formData.employeeNumber.trim() || busy) {
+    if (!formData.name.trim() || busy) return;
+    if (!editingMember && !/^\d{6,8}$/.test(formData.pin)) {
+      setError("Defina um PIN inicial de 6 a 8 números.");
       return;
     }
-    const creatingAccount = !editingMember || !editingMember.uid;
-    if (creatingAccount && (!formData.email.trim() || formData.temporaryPassword.length < 6)) {
-      setError("Informe o e-mail do membro e uma senha temporária com pelo menos 6 caracteres.");
+    if (formData.pin && !/^\d{6,8}$/.test(formData.pin)) {
+      setError("O PIN deve ter de 6 a 8 números.");
       return;
     }
 
@@ -191,140 +164,53 @@ export default function TeamModule({ readOnly = false }: { readOnly?: boolean })
     setError("");
     setNotice("");
     try {
-      const normalizedNumber = formData.employeeNumber.trim();
-      const existingMembers = await getDocs(query(
-        collection(db, "waiters"),
-        where("restaurantId", "==", restaurantId),
-      ));
-      if (existingMembers.docs.some((item) =>
-        item.id !== editingMember?.id && item.data().employeeNumber === normalizedNumber,
-      )) {
-        throw new Error("Esse número de cadastro já está em uso.");
-      }
-
-      if (editingMember && !creatingAccount) {
-        const batch = writeBatch(db);
-        batch.update(doc(db, "waiters", editingMember.id), {
-          name: formData.name.trim(),
-          role: normalizeStaffRole(formData.role),
-          employeeNumber: normalizedNumber,
-        });
-        batch.set(doc(db, "waiterDirectory", editingMember.id), {
+      if (editingMember) {
+        const updateEmployee = httpsCallable(functions, "updateEmployee");
+        await updateEmployee({
           restaurantId,
+          employeeId: editingMember.id,
           name: formData.name.trim(),
           role: normalizeStaffRole(formData.role),
           active: editingMember.status === "ativo",
+          pin: formData.pin,
         });
-        batch.set(doc(db, "waiterDirectory", restaurantId, "staff", editingMember.id), {
-          restaurantId, name: formData.name.trim(), role: normalizeStaffRole(formData.role), active: editingMember.status === "ativo",
-        });
-        await batch.commit();
-        setNotice("Cadastro do funcionário atualizado.");
+        setNotice(formData.pin ? "Cadastro e PIN do funcionário atualizados." : "Cadastro do funcionário atualizado.");
       } else {
-        const normalizedEmail = formData.email.trim().toLowerCase();
-        await signOut(restaurantProvisioningAuth).catch(() => undefined);
-        const createdAccount = await createUserWithEmailAndPassword(
-          restaurantProvisioningAuth,
-          normalizedEmail,
-          formData.temporaryPassword,
-        );
-        const waiterRef = editingMember
-          ? doc(db, "waiters", editingMember.id)
-          : doc(collection(db, "waiters"));
-        const batch = writeBatch(db);
-        const accountFields = {
-          name: formData.name.trim(),
-          role: normalizeStaffRole(formData.role),
-          employeeNumber: normalizedNumber,
-          restaurantId,
-          email: normalizedEmail,
-          uid: createdAccount.user.uid,
-          mustChangePassword: true,
-          active: editingMember ? editingMember.status === "ativo" : true,
-        };
-        if (editingMember) {
-          batch.update(waiterRef, accountFields);
-        } else {
-          batch.set(waiterRef, { ...accountFields, createdAt: serverTimestamp() });
-        }
-        batch.set(doc(db, "waiterDirectory", waiterRef.id), {
+        const createEmployee = httpsCallable<{
+          restaurantId: string; name: string; role: StaffRole; pin: string;
+        }, { id: string; employeeCode: string }>(functions, "createEmployee");
+        const result = await createEmployee({
           restaurantId,
           name: formData.name.trim(),
           role: normalizeStaffRole(formData.role),
-          active: editingMember ? editingMember.status === "ativo" : true,
+          pin: formData.pin,
         });
-        batch.set(doc(db, "waiterDirectory", restaurantId, "staff", waiterRef.id), {
-          restaurantId, name: formData.name.trim(), role: normalizeStaffRole(formData.role), active: editingMember ? editingMember.status === "ativo" : true,
-        });
-        batch.set(doc(db, "restaurantStaff", createdAccount.user.uid), {
-          restaurantId,
-          waiterId: waiterRef.id,
-          role: normalizeStaffRole(formData.role),
-          active: editingMember ? editingMember.status === "ativo" : true,
-        });
-        try {
-          await batch.commit();
-        } catch (saveError) {
-          await deleteUser(createdAccount.user).catch(() => undefined);
-          throw saveError;
-        } finally {
-          await signOut(restaurantProvisioningAuth).catch(() => undefined);
-        }
-        showActivation(formData.name, waiterRef.id, normalizedEmail, formData.temporaryPassword);
+        showActivation(formData.name.trim(), result.data.id, "", result.data.employeeCode);
       }
       setShowModal(false);
     } catch (saveError) {
       console.error("Erro ao salvar funcionário:", saveError);
-      const code = typeof saveError === "object" && saveError && "code" in saveError
-        ? String((saveError as { code: string }).code)
-        : "";
-      setError(code === "auth/email-already-in-use"
-        ? "Este e-mail já possui uma conta no Firebase. Use outro e-mail para este membro."
-        : code === "auth/invalid-email"
-          ? "Informe um e-mail válido."
-          : code === "auth/weak-password"
-            ? "A senha temporária precisa ter pelo menos 6 caracteres."
-            : saveError instanceof Error ? saveError.message : "Não foi possível salvar o cadastro.");
+      setError(saveError instanceof Error ? saveError.message : "Não foi poss?vel salvar o cadastro.");
     } finally {
       setBusy(false);
     }
   }
 
   function handleGenerateQr(member: TeamMember) {
-    if (!member.email) {
-      setEditingMember(member);
-      setFormData({
-        name: member.name,
-        role: member.role,
-        employeeNumber: member.employeeNumber,
-        email: "",
-        temporaryPassword: "",
-      });
-      setError("Defina o e-mail e a senha temporária deste membro para gerar o novo QR.");
-      setShowModal(true);
-      return;
-    }
-    showActivation(member.name, member.id, member.email);
+    showActivation(member.name, member.id, member.pinEnabled ? "" : member.email, member.employeeCode || member.employeeNumber);
   }
 
   async function handleDeleteMember(member: TeamMember) {
-    if (!window.confirm(`Remover o acesso de ${member.name}?`)) {
-      return;
-    }
-
+    if (!window.confirm(`Remover o acesso de ${member.name}?`)) return;
     setBusy(true);
     setError("");
     try {
-      const batch = writeBatch(db);
-      batch.delete(doc(db, "waiters", member.id));
-      batch.delete(doc(db, "waiterDirectory", member.id));
-      batch.delete(doc(db, "waiterDirectory", restaurantId, "staff", member.id));
-      if (member.uid) batch.delete(doc(db, "restaurantStaff", member.uid));
-      await batch.commit();
+      const deleteEmployee = httpsCallable(functions, "deleteEmployee");
+      await deleteEmployee({ restaurantId, employeeId: member.id });
       setNotice("Acesso do funcionário removido.");
     } catch (deleteError) {
       console.error("Erro ao remover funcionário:", deleteError);
-      setError("Não foi possível remover este funcionário.");
+      setError("Não foi poss?vel remover este funcionário.");
     } finally {
       setBusy(false);
     }
@@ -335,23 +221,12 @@ export default function TeamModule({ readOnly = false }: { readOnly?: boolean })
     setError("");
     try {
       const active = member.status !== "ativo";
-      const batch = writeBatch(db);
-      batch.update(doc(db, "waiters", member.id), { active });
-      batch.update(doc(db, "waiterDirectory", member.id), { active });
-      batch.set(doc(db, "waiterDirectory", restaurantId, "staff", member.id), { restaurantId, name: member.name, role: normalizeStaffRole(member.role), active }, { merge: true });
-      if (member.uid) {
-        batch.set(doc(db, "restaurantStaff", member.uid), {
-          restaurantId,
-          waiterId: member.id,
-          role: member.role,
-          active,
-        });
-      }
-      await batch.commit();
+      const updateEmployee = httpsCallable(functions, "updateEmployee");
+      await updateEmployee({ restaurantId, employeeId: member.id, active });
       setNotice(member.status === "ativo" ? "Acesso desativado." : "Acesso ativado.");
     } catch (statusError) {
       console.error("Erro ao alterar acesso:", statusError);
-      setError("Não foi possível alterar o acesso deste funcionário.");
+      setError("Não foi poss?vel alterar o acesso deste funcionário.");
     } finally {
       setBusy(false);
     }
@@ -437,7 +312,7 @@ export default function TeamModule({ readOnly = false }: { readOnly?: boolean })
                 <h3>{member.name}</h3>
                 <span className="role-badge">{STAFF_ROLE_LABELS[normalizeStaffRole(member.role)]}</span>
                 <div className="team-details">
-                  <div><span>Número de cadastro</span><strong>{member.employeeNumber}</strong></div>
+                  <div><span>Número de cadastro</span><strong>{(member.employeeCode || member.employeeNumber || "-")}</strong></div>
                   <div><span>Acesso ao sistema</span><strong>{member.mustChangePassword ? "Senha temporária" : member.uid ? "Ativo" : "Pendente"}</strong></div>
                   <div><span>Cadastro</span><strong>{member.hireDate?.toLocaleDateString("pt-BR") || "-"}</strong></div>
                 </div>
@@ -472,26 +347,14 @@ export default function TeamModule({ readOnly = false }: { readOnly?: boolean })
                 </select>
               </div>
               <div className="form-field">
-                <label htmlFor="waiter-employee-number">Número de cadastro da empresa</label>
-                <input id="waiter-employee-number" value={formData.employeeNumber} onChange={(event) => setFormData({ ...formData, employeeNumber: event.target.value })} required />
+                <label htmlFor="waiter-pin">PIN de acesso {editingMember ? "(opcional para manter o atual)" : "(6 a 8 números)"}</label>
+                <input id="waiter-pin" type="password" inputMode="numeric" autoComplete="new-password" value={formData.pin} onChange={(event) => setFormData({ ...formData, pin: event.target.value })} required={!editingMember} minLength={6} maxLength={8} pattern="[0-9]{6,8}" />
               </div>
-              {(!editingMember || !editingMember.uid) && (
-                <>
-                  <div className="form-field">
-                    <label htmlFor="waiter-email">E-mail de acesso</label>
-                    <input id="waiter-email" type="email" autoComplete="off" value={formData.email} onChange={(event) => setFormData({ ...formData, email: event.target.value })} required />
-                  </div>
-                  <div className="form-field">
-                    <label htmlFor="waiter-temp-password">Senha temporária (mínimo 6 caracteres)</label>
-                    <input id="waiter-temp-password" type="password" autoComplete="new-password" value={formData.temporaryPassword} onChange={(event) => setFormData({ ...formData, temporaryPassword: event.target.value })} required minLength={6} />
-                  </div>
-                </>
-              )}
               {error && <div className="team-feedback error" role="alert">{error}</div>}
             </div>
             <div className="modal-footer">
               <button className="secondary-button" type="button" onClick={() => setShowModal(false)}>Cancelar</button>
-              <button className="primary-button" type="button" onClick={() => void handleSaveMember()} disabled={busy || !formData.name.trim() || !formData.employeeNumber.trim() || ((!editingMember || !editingMember.uid) && (!formData.email.trim() || formData.temporaryPassword.length < 6))}>
+              <button className="primary-button" type="button" onClick={() => void handleSaveMember()} disabled={busy || !formData.name.trim() || (!editingMember && !/^\d{6,8}$/.test(formData.pin))}>
                 {busy ? "Salvando..." : editingMember?.uid ? "Salvar alterações" : "Criar acesso e gerar QR"}
               </button>
             </div>
@@ -506,16 +369,10 @@ export default function TeamModule({ readOnly = false }: { readOnly?: boolean })
             <div className="modal-title">
               <span>ACESSO DO FUNCIONÁRIO</span>
               <h2 id="waiter-qr-title">{activationName}</h2>
-              <p>Entregue o QR e a senha temporária ao funcionário. Ao entrar, ele será solicitado a criar uma senha pessoal.</p>
+              <p>Use o QR para identificar o funcionário. Ele informa o PIN definido para entrar.</p>
             </div>
             <div className="qr-display"><QRCodeCanvas value={activationUrl} size={220} level="H" includeMargin /></div>
-            <div className="activation-expiry">QR individual para a conta de {activationEmail}</div>
-            {activationTemporaryPassword && (
-              <div className="activation-credentials">
-                <span>E-mail: <strong>{activationEmail}</strong></span>
-                <span>Senha temporária: <strong>{activationTemporaryPassword}</strong></span>
-              </div>
-            )}
+            <div className="activation-expiry">ID do funcionário: <strong>{activationEmployeeCode || activationEmail}</strong></div>
             <div className="qr-url">{activationUrl}</div>
             <button className="secondary-button activation-copy" type="button" onClick={() => void copyActivationUrl()}>
               {copied ? <Check size={18} /> : <Clipboard size={18} />}

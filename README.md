@@ -1,6 +1,6 @@
 # Servia
 
-Sistema de atendimento para restaurantes em React 19, Vite, TypeScript e Firebase Authentication/Firestore. O alvo documentado de publicação é Firebase Hosting; o fluxo padrão usa recursos compatíveis com o plano Spark.
+Sistema Servia para restaurantes em React 19, Vite, TypeScript e Firebase Authentication/Firestore. A hospedagem usa Firebase Hosting. O acesso de funcionarios por PIN usa Cloud Functions e requer o plano Blaze.
 
 ## Configuração
 
@@ -16,7 +16,7 @@ Sistema de atendimento para restaurantes em React 19, Vite, TypeScript e Firebas
 npm ci
 npm run dev
 npm run build
-npx firebase-tools deploy --only hosting,firestore:rules,firestore:indexes --project SEU_PROJECT_ID
+npx firebase-tools deploy --only functions,hosting,firestore:rules,firestore:indexes --project SEU_PROJECT_ID
 ```
 
 Confira [TESTING.md](TESTING.md) para verificações automatizadas e roteiro manual. O GitHub Actions executa TypeScript, lint e regras do Firestore em cada push/PR.
@@ -36,3 +36,10 @@ Veja `.env.example`. App Check fica desligado por padrão. `VITE_CALL_ESCALATION
 As alterações de schema são aditivas e mantêm leitura de dados antigos. finho60 é o proprietário do sistema e libera/cadastra restaurantes. A conta do restaurante é identificada separadamente pelo UID corresponder ao ID do restaurante e pelo campo `ownerEmail`; o restaurante autorizado administrado por jeferson tem acesso total apenas aos próprios dados e funcionários. Antes de aplicar as regras, faça backup e migre o diretório público de garçons. Tokens de mesa devem ser tratados como segredos: rotacione-os se um QR for exposto.
 
 O token `VERCEL_OIDC_TOKEN` incluído no arquivo ZIP precisa ser invalidado no provedor. Para limpar o histórico Git, faça backup e execute, após instalar `git-filter-repo`, `git filter-repo --path VERCEL_OIDC_TOKEN --invert-paths`; isso reescreve commits e exige coordenar o novo push com colaboradores.
+
+
+## Employee PIN access
+
+The restaurant administrator registers each employee with a name, role, and initial PIN. Servia generates an ID in the FUNC- format. Employees sign in with that ID and PIN, or open their individual QR and enter the PIN. A callable Cloud Function validates the PIN, stores only a salted scrypt hash, limits failed attempts, and issues a Firebase session scoped to the employee and restaurant. Employees can change their own PIN; a manager can reset it from the employee record.
+
+Cloud Functions deployment requires Firebase Blaze billing. Configure a Firestore TTL policy on the expireAt field in employeeLoginLimits to remove old rate-limit records. employeeSecrets, employeeCodes, employeeLoginLimits, and employeeAudit are server-only collections. Never expose Admin SDK credentials in the frontend.

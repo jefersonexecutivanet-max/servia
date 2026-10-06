@@ -147,8 +147,24 @@ service cloud.firestore {
         && exists(waiterPath)
         && get(waiterPath).data.active == true
         && get(waiterPath).data.uid == request.auth.uid
-        && get(waiterPath).data.email == request.auth.token.email
         && restaurantIsActive(get(waiterPath).data.restaurantId);
+    }
+
+    // PIN hashes, employee code lookup, throttling counters, and audit records are server-only.
+    match /employeeSecrets/{employeeId} {
+      allow read, write: if false;
+    }
+
+    match /employeeCodes/{employeeCode} {
+      allow read, write: if false;
+    }
+
+    match /employeeLoginLimits/{limitId} {
+      allow read, write: if false;
+    }
+
+    match /employeeAudit/{auditId} {
+      allow read, write: if false;
     }
 
     function validWaiterClaim() {

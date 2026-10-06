@@ -13,6 +13,7 @@ import {
   CircleDollarSign,
   ClipboardList,
   Grid3X3,
+  KeyRound,
   LayoutDashboard,
   LogOut,
   Menu,
@@ -29,6 +30,7 @@ import {
 import {
   createUserWithEmailAndPassword,
   onAuthStateChanged,
+  signInWithCustomToken,
   signInWithEmailAndPassword,
   signOut,
   sendEmailVerification,
@@ -48,7 +50,8 @@ import {
   updateDoc,
   where,
 } from "firebase/firestore";
-import { auth, db } from "./firebase";
+import { httpsCallable } from "firebase/functions";
+import { auth, db, functions } from "./firebase";
 
 import CustomerTable from "./components/CustomerTable";
 const TablesModule = lazy(() => import("./components/TablesModule"));
@@ -130,7 +133,82 @@ function isSystemOwner(user: Pick<User, "uid" | "email"> | null | undefined): bo
    LOGIN
 ========================================================= */
 
-function LoginScreen({ waiterMode = false, waiterEmail = "" }: { waiterMode?: boolean; waiterEmail?: string } = {}) {
+function EmployeePinLogin({
+  restaurantId = "",
+  waiterId = "",
+  onBack,
+}: {
+  restaurantId?: string;
+  waiterId?: string;
+  onBack: () => void;
+}) {
+  const isQrLogin = Boolean(restaurantId && waiterId);
+  const [employeeCode, setEmployeeCode] = useState("");
+  const [pin, setPin] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function handleEmployeeLogin(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      const loginEmployee = httpsCallable<{
+        employeeCode?: string; pin: string; restaurantId?: string; waiterId?: string;
+      }, { token: string }>(functions, "loginEmployee");
+      const result = await loginEmployee(isQrLogin
+        ? { restaurantId, waiterId, pin }
+        : { employeeCode, pin });
+      await signInWithCustomToken(auth, result.data.token);
+    } catch (loginError) {
+      const code = typeof loginError === "object" && loginError && "code" in loginError
+        ? String((loginError as { code: string }).code)
+        : "";
+      setError(code.endsWith("resource-exhausted")
+        ? "Muitas tentativas. Aguarde 15 minutos e tente novamente."
+        : "Identificação ou PIN incorretos, ou o acesso está inativo.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="login-page">
+      <div className="login-background-glow glow-one" />
+      <div className="login-background-glow glow-two" />
+      <div className="login-container">
+        <div className="login-brand"><strong>Servia</strong><span>Gestão para restaurantes</span></div>
+        <div className="login-card">
+          <div className="login-card-header">
+            <div className="login-card-icon"><Users size={22} /></div>
+            <div>
+              <h1>Acesso do funcionário</h1>
+              <p>{isQrLogin ? "Digite seu PIN para abrir o acesso indicado pelo QR." : "Entre com seu ID de funcionário e PIN."}</p>
+            </div>
+          </div>
+          <form onSubmit={(event) => void handleEmployeeLogin(event)}>
+            {!isQrLogin && <div className="form-field">
+              <label htmlFor="employee-code">ID do funcionário</label>
+              <div className="input-wrapper"><input id="employee-code" name="employeeCode" autoComplete="username" value={employeeCode} onChange={(event) => setEmployeeCode(event.target.value.toUpperCase())} required placeholder="FUNC-..." /></div>
+            </div>}
+            <div className="form-field">
+              <label htmlFor="employee-pin">PIN</label>
+              <div className="input-wrapper"><input id="employee-pin" name="pin" type="password" inputMode="numeric" autoComplete="current-password" value={pin} onChange={(event) => setPin(event.target.value)} required minLength={6} maxLength={8} pattern="[0-9]{6,8}" /></div>
+            </div>
+            {error && <div className="login-error" role="alert">{error}</div>}
+            <button className="login-submit" type="submit" disabled={busy || (!isQrLogin && !employeeCode.trim()) || pin.length < 6}>
+              {busy ? "Verificando..." : "Entrar"}
+            </button>
+            <button className="login-switch-button" type="button" onClick={onBack}>Voltar ao login</button>
+          </form>
+        </div>
+        <div className="login-footer"><span>Servia</span><span>·</span><span>Atendimento para restaurantes</span></div>
+      </div>
+    </div>
+  );
+}
+
+function LoginScreen({ waiterMode = false, waiterEmail = "", onEmployeeLogin }: { waiterMode?: boolean; waiterEmail?: string; onEmployeeLogin?: () => void } = {}) {
   const [mode, setMode] = useState<"login" | "register" | "reset">("login");
 
   const [name, setName] = useState("");
@@ -138,7 +216,7 @@ function LoginScreen({ waiterMode = false, waiterEmail = "" }: { waiterMode?: bo
   const [password, setPassword] = useState("");
 
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(waiterMode && !waiterEmail ? "Este QR precisa ser atualizado pelo gestor para incluir o e-mail de acesso." : "");
+  const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
 
   async function handlePasswordReset() {
@@ -398,6 +476,12 @@ function LoginScreen({ waiterMode = false, waiterEmail = "" }: { waiterMode?: bo
                   : "Criar minha conta"}
             </button>
           </form>
+
+          {!waiterMode && mode === "login" && onEmployeeLogin && (
+            <button type="button" className="login-switch-button" onClick={onEmployeeLogin}>
+              Entrar como funcionário com PIN
+            </button>
+          )}
 
           {mode === "reset" && (
             <div className="password-reset-form">
@@ -751,11 +835,13 @@ function Topbar({
   user,
   onLogout,
   onOpenMobile,
+  onChangePin,
 }: {
   active: ModuleName;
   user: User;
   onLogout: () => void;
   onOpenMobile: () => void;
+  onChangePin?: () => void;
 }) {
   const online = useOnlineStatus();
 
@@ -783,6 +869,7 @@ function Topbar({
       </div>
 
       <div className="topbar-right">
+        {onChangePin && <button className="notification-button" title="Alterar PIN" aria-label="Alterar PIN" onClick={onChangePin}><KeyRound size={18} /></button>}
         <div className={`connection-status ${online ? "online" : "offline"}`} role="status">
           <span />
           {online ? "Online" : "Offline"}
@@ -1480,6 +1567,7 @@ function AdminApplication({
   restaurantId: string;
   onSelectRestaurant: (restaurantId: string) => void;
 }) {
+  const [showPinChange, setShowPinChange] = useState(false);
   const [active, setActive] =
     useState<ModuleName>(
       systemAdmin
@@ -1618,6 +1706,7 @@ function AdminApplication({
           onOpenMobile={() =>
             setMobileOpen(true)
           }
+          onChangePin={staffRole ? () => setShowPinChange(true) : undefined}
         />
 
         <main className="content-area">
@@ -1625,11 +1714,74 @@ function AdminApplication({
         </main>
       </div>
     </div>
+    {showPinChange && <EmployeePinChangeDialog onClose={() => setShowPinChange(false)} />}
     </RestaurantProvider>
   );
 }
 
+function EmployeePinChangeDialog({ onClose }: { onClose: () => void }) {
+  const [oldPin, setOldPin] = useState("");
+  const [newPin, setNewPin] = useState("");
+  const [confirmPin, setConfirmPin] = useState("");
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (newPin !== confirmPin) { setMessage("Os PINs novos não coincidem."); return; }
+    setBusy(true);
+    try {
+      await httpsCallable(functions, "changeOwnEmployeePin")({ oldPin, newPin });
+      setMessage("PIN alterado com sucesso.");
+      setOldPin(""); setNewPin(""); setConfirmPin("");
+    } catch (error) {
+      const code = typeof error === "object" && error && "code" in error ? String((error as { code: string }).code) : "";
+      setMessage(code.endsWith("resource-exhausted") ? "Muitas tentativas. Aguarde e tente novamente." : "PIN atual incorreto ou não foi possível alterar agora.");
+    } finally { setBusy(false); }
+  }
+  return <div className="modal-overlay" onClick={onClose}>
+    <div className="modal" role="dialog" aria-modal="true" aria-labelledby="staff-pin-title" onClick={(event) => event.stopPropagation()}>
+      <div className="modal-header"><h2 id="staff-pin-title">Alterar meu PIN</h2><button type="button" onClick={onClose} aria-label="Fechar"><X size={18} /></button></div>
+      <form onSubmit={(event) => void submit(event)}><div className="modal-body">
+        <div className="form-field"><label htmlFor="staff-current-pin">PIN atual</label><input id="staff-current-pin" name="oldPin" type="password" inputMode="numeric" autoComplete="current-password" value={oldPin} onChange={(event) => setOldPin(event.target.value)} required minLength={6} maxLength={8} pattern="[0-9]{6,8}" /></div>
+        <div className="form-field"><label htmlFor="staff-new-pin">Novo PIN</label><input id="staff-new-pin" name="newPin" type="password" inputMode="numeric" autoComplete="new-password" value={newPin} onChange={(event) => setNewPin(event.target.value)} required minLength={6} maxLength={8} pattern="[0-9]{6,8}" /></div>
+        <div className="form-field"><label htmlFor="staff-confirm-pin">Confirme o novo PIN</label><input id="staff-confirm-pin" name="confirmPin" type="password" inputMode="numeric" autoComplete="new-password" value={confirmPin} onChange={(event) => setConfirmPin(event.target.value)} required minLength={6} maxLength={8} pattern="[0-9]{6,8}" /></div>
+        {message && <div className="team-feedback" role="status">{message}</div>}
+      </div><div className="modal-footer"><button className="secondary-button" type="button" onClick={onClose}>Cancelar</button><button className="primary-button" type="submit" disabled={busy}>{busy ? "Salvando..." : "Salvar PIN"}</button></div></form>
+    </div>
+  </div>;
+}
+
 function WaiterPortal({ user, waiterId, restaurantId }: { user: User; waiterId: string; restaurantId: string }) {
+  const [showPinChange, setShowPinChange] = useState(false);
+  const [oldPin, setOldPin] = useState("");
+  const [newPin, setNewPin] = useState("");
+  const [confirmPin, setConfirmPin] = useState("");
+  const [pinMessage, setPinMessage] = useState("");
+  const [pinBusy, setPinBusy] = useState(false);
+
+  async function handlePinChange(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setPinMessage("");
+    if (!/^\d{6,8}$/.test(newPin) || newPin !== confirmPin) {
+      setPinMessage(newPin !== confirmPin ? "Os PINs novos não coincidem." : "O PIN precisa ter de 6 a 8 números.");
+      return;
+    }
+    setPinBusy(true);
+    try {
+      const changePin = httpsCallable(functions, "changeOwnEmployeePin");
+      await changePin({ oldPin, newPin });
+      setPinMessage("PIN alterado com sucesso.");
+      setOldPin("");
+      setNewPin("");
+      setConfirmPin("");
+    } catch (error) {
+      const code = typeof error === "object" && error && "code" in error ? String((error as { code: string }).code) : "";
+      setPinMessage(code.endsWith("resource-exhausted") ? "Muitas tentativas. Aguarde e tente novamente." : "PIN atual incorreto ou não foi possível alterar agora.");
+    } finally {
+      setPinBusy(false);
+    }
+  }
+
   return (
     <RestaurantProvider value={{ restaurantId, systemAdmin: false, setRestaurantId: () => undefined }}>
     <div className="waiter-mobile-shell">
@@ -1639,6 +1791,9 @@ function WaiterPortal({ user, waiterId, restaurantId }: { user: User; waiterId: 
           <span>{user.displayName || "Atendimento do salÃ£o"}</span>
         </div>
         <ConnectionStatus />
+        <button type="button" onClick={() => { setPinMessage(""); setShowPinChange(true); }} aria-label="Alterar PIN" title="Alterar PIN">
+          <KeyRound size={19} />
+        </button>
         <button type="button" onClick={() => void signOut(auth)} aria-label="Sair">
           <LogOut size={19} />
         </button>
@@ -1646,6 +1801,20 @@ function WaiterPortal({ user, waiterId, restaurantId }: { user: User; waiterId: 
       <main className="waiter-mobile-content">
         <Suspense fallback={<div className="loading-screen"><div className="loading-spinner" /></div>}><WaiterModule user={user} waiterId={waiterId} /></Suspense>
       </main>
+      {showPinChange && <div className="modal-overlay" onClick={() => setShowPinChange(false)}>
+        <div className="modal" role="dialog" aria-modal="true" aria-labelledby="employee-pin-change-title" onClick={(event) => event.stopPropagation()}>
+          <div className="modal-header"><h2 id="employee-pin-change-title">Alterar meu PIN</h2><button type="button" onClick={() => setShowPinChange(false)} aria-label="Fechar"><X size={18} /></button></div>
+          <form onSubmit={(event) => void handlePinChange(event)}>
+            <div className="modal-body">
+              <div className="form-field"><label htmlFor="current-employee-pin">PIN atual</label><input id="current-employee-pin" name="oldPin" type="password" inputMode="numeric" autoComplete="current-password" value={oldPin} onChange={(event) => setOldPin(event.target.value)} required minLength={6} maxLength={8} pattern="[0-9]{6,8}" /></div>
+              <div className="form-field"><label htmlFor="new-employee-pin">Novo PIN</label><input id="new-employee-pin" name="newPin" type="password" inputMode="numeric" autoComplete="new-password" value={newPin} onChange={(event) => setNewPin(event.target.value)} required minLength={6} maxLength={8} pattern="[0-9]{6,8}" /></div>
+              <div className="form-field"><label htmlFor="confirm-employee-pin">Confirme o novo PIN</label><input id="confirm-employee-pin" name="confirmPin" type="password" inputMode="numeric" autoComplete="new-password" value={confirmPin} onChange={(event) => setConfirmPin(event.target.value)} required minLength={6} maxLength={8} pattern="[0-9]{6,8}" /></div>
+              {pinMessage && <div className="team-feedback" role="status">{pinMessage}</div>}
+            </div>
+            <div className="modal-footer"><button className="secondary-button" type="button" onClick={() => setShowPinChange(false)}>Cancelar</button><button className="primary-button" type="submit" disabled={pinBusy}>{pinBusy ? "Salvando..." : "Salvar PIN"}</button></div>
+          </form>
+        </div>
+      </div>}
     </div>
     </RestaurantProvider>
   );
@@ -1808,6 +1977,7 @@ export default function App() {
   const waiterRestaurantRouteId = waiterRouteMatch?.[1] || "";
   const waiterRouteId = waiterRouteMatch?.[2] || "";
   const waiterEmail = new URLSearchParams(window.location.search).get("email") || "";
+  const [employeePinMode, setEmployeePinMode] = useState(() => Boolean(waiterRouteId && !waiterEmail));
   const [user, setUser] =
     useState<User | null>(null);
 
@@ -1847,7 +2017,18 @@ export default function App() {
             return;
           }
 
-          if (waiterRouteId && !currentUser.emailVerified) {
+          const tokenResult = await currentUser.getIdTokenResult();
+          const isPinEmployee = tokenResult.claims.employee === true;
+
+          if (waiterRouteId && !waiterEmail && !isPinEmployee) {
+            await signOut(auth);
+            setUser(null);
+            setEmployeePinMode(true);
+            setLoading(false);
+            return;
+          }
+
+          if (waiterRouteId && waiterEmail && !currentUser.emailVerified) {
             setAccess("verification");
             setLoading(false);
             return;
@@ -1910,7 +2091,11 @@ export default function App() {
                 if (
                   memberData?.active === true &&
                   memberData.uid === currentUser.uid &&
-                  memberData.email === currentUser.email &&
+                  (isPinEmployee
+                    ? tokenResult.claims.employeeId === matchedWaiterId
+                      && tokenResult.claims.restaurantId === memberData.restaurantId
+                      && tokenResult.claims.role === (staffData?.role ?? memberData.role)
+                    : memberData.email === currentUser.email) &&
                   memberData.restaurantId === (waiterRestaurantRouteId || staffData?.restaurantId) &&
                   matchedWaiterId
                 ) {
@@ -2048,7 +2233,21 @@ export default function App() {
   }
 
   if (!user) {
-    return <LoginScreen waiterMode={Boolean(waiterRouteId)} waiterEmail={waiterEmail} />;
+    if (employeePinMode) {
+      return <EmployeePinLogin
+        restaurantId={waiterRestaurantRouteId}
+        waiterId={waiterRouteId}
+        onBack={() => {
+          if (waiterRouteId) window.location.assign("/");
+          else setEmployeePinMode(false);
+        }}
+      />;
+    }
+    return <LoginScreen
+      waiterMode={Boolean(waiterRouteId && waiterEmail)}
+      waiterEmail={waiterEmail}
+      onEmployeeLogin={() => setEmployeePinMode(true)}
+    />;
   }
 
   if (access === "waiter-password-change") {
