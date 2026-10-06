@@ -94,7 +94,7 @@ export default function SettingsModule() {
   });
 
   const [payment, setPayment] = useState<PaymentSettings>({
-    pixKey: "finho60@hotmail.com",
+    pixKey: import.meta.env.VITE_PIX_KEY || "",
     cardEnabled: true,
     cashEnabled: true,
     serviceFee: 10,

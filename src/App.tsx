@@ -118,8 +118,8 @@ function getTableClass(status: TableStatus) {
 }
 
 const ownerIdentity = {
-  uid: "FOuQD7ivuuVAfDZwlsjaU2Lte753",
-  email: "finho60@hotmail.com",
+  uid: import.meta.env.VITE_OWNER_UID || "",
+  email: import.meta.env.VITE_OWNER_EMAIL || "",
 };
 
 /* =========================================================
@@ -642,7 +642,7 @@ function Sidebar({
               </span>
             )}
 
-            {mainMenu.map(renderItem)}
+        {mainMenu.map(renderItem)}
           </div>
 
           {managementMenu.length > 0 && (
@@ -653,7 +653,7 @@ function Sidebar({
                 </span>
               )}
 
-              {managementMenu.map(renderItem)}
+          {managementMenu.map(renderItem)}
             </div>
           )}
 
@@ -665,7 +665,7 @@ function Sidebar({
                 </span>
               )}
 
-              {systemMenu.map(renderItem)}
+          {systemMenu.map(renderItem)}
             </div>
           )}
         </div>
@@ -891,10 +891,6 @@ function DashboardContent({
               <span>Receita Mensal</span>
 
               <strong>R$ 0,00</strong>
-
-              <small className="positive">
-                +15,2% vs. mês anterior
-              </small>
             </div>
           </div>
 
@@ -907,10 +903,6 @@ function DashboardContent({
               <span>Restaurantes Ativos</span>
 
               <strong>0</strong>
-
-              <small className="positive">
-                +3 novos este mês
-              </small>
             </div>
           </div>
 
@@ -996,47 +988,6 @@ function DashboardContent({
 
             <div className="payment-list">
               <div className="empty-state">Nenhum pagamento registrado.</div>
-              {/*
-              <div className="payment-item">
-                <div className="payment-info">
-                  <strong>Restaurante ABC</strong>
-                  <small>Plano Mensal</small>
-                </div>
-                <div className="payment-amount positive">
-                  +R$ 100,00
-                </div>
-              </div>
-
-              <div className="payment-item">
-                <div className="payment-info">
-                  <strong>Pizzaria do João</strong>
-                  <small>Plano Mensal</small>
-                </div>
-                <div className="payment-amount positive">
-                  +R$ 100,00
-                </div>
-              </div>
-
-              <div className="payment-item">
-                <div className="payment-info">
-                  <strong>Churrascaria Sul</strong>
-                  <small>Plano Mensal</small>
-                </div>
-                <div className="payment-amount positive">
-                  +R$ 100,00
-                </div>
-              </div>
-
-              <div className="payment-item">
-                <div className="payment-info">
-                  <strong>Café Central</strong>
-                  <small>Plano Mensal</small>
-                </div>
-                <div className="payment-amount positive">
-                  +R$ 100,00
-                </div>
-              </div>
-              */}
             </div>
           </div>
         </div>
@@ -1838,7 +1789,7 @@ export default function App() {
 
   const [loading, setLoading] =
     useState(true);
-  const [access, setAccess] = useState<"admin" | "restaurant" | "restaurant-pending" | "waiter" | "waiter-password-change" | "verification" | "blocked" | "signed-out">("signed-out");
+  const [access, setAccess] = useState<"admin" | "restaurant" | "restaurant-pending" | "waiter" | "staff" | "waiter-password-change" | "verification" | "blocked" | "signed-out">("signed-out");
   const [waiterId, setWaiterId] = useState("");
   const [restaurantId, setRestaurantId] = useState(() => localStorage.getItem("servia-active-restaurant") || "");
   const [pendingRestaurantName, setPendingRestaurantName] = useState("");
@@ -1888,8 +1839,6 @@ export default function App() {
                     ? "restaurant"
                     : "restaurant-pending",
                 );
-              } else if (!waiterRouteId && !currentUser.emailVerified) {
-                setAccess("verification");
               } else {
                 let memberSnapshot;
                 let matchingMembers;
@@ -1923,7 +1872,9 @@ export default function App() {
                 ) {
                   setWaiterId(matchedWaiterId);
                   setRestaurantId(String(memberData.restaurantId || ""));
-                  setAccess(memberData.mustChangePassword === true ? "waiter-password-change" : "waiter");
+                  setAccess(memberData.mustChangePassword === true
+                    ? "waiter-password-change"
+                    : "waiter");
                 } else {
                   setWaiterId("");
                   setAccessMessage("Não encontramos um cadastro ativo para esta conta. Abra o QR individual enviado pelo administrador.");
@@ -2067,7 +2018,7 @@ export default function App() {
         <strong>{pendingRestaurantName}</strong>
         <span>Pagamento Pix pendente de confirmação do administrador.</span>
         <span>Valor para liberar/renovar: {formatCurrency(pendingPaymentAmount)}.</span>
-        <strong>Chave Pix: finho60@hotmail.com</strong>
+        <strong>Chave Pix: {import.meta.env.VITE_PIX_KEY || "consulte o administrador"}</strong>
         <div className="payment-actions">
           <button className="secondary-button" type="button" onClick={() => window.location.reload()}>
             Verificar pagamento

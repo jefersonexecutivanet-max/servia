@@ -9,12 +9,22 @@ admin.initializeApp({
 const db = admin.firestore();
 const auth = admin.auth();
 
+// Gerar senha aleatória se não fornecida
+function generatePassword(length = 12) {
+  const charset = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*';
+  let password = '';
+  for (let i = 0; i < length; i++) {
+    password += charset.charAt(Math.floor(Math.random() * charset.length));
+  }
+  return password;
+}
+
 async function createTestRestaurant() {
-  const restaurantName = 'laihdoceria';
-  const email = 'laihdoceria@servia.test';
-  const password = 'executiva3030';
-  const ownerName = 'Administrador Laihdoceria';
-  const cnpj = '00.000.000/0001-00';
+  const restaurantName = process.env.RESTAURANT_NAME || 'laihdoceria';
+  const email = process.env.RESTAURANT_EMAIL || 'laihdoceria@servia.test';
+  const password = process.env.RESTAURANT_PASSWORD || generatePassword();
+  const ownerName = process.env.OWNER_NAME || 'Administrador Laihdoceria';
+  const cnpj = process.env.RESTAURANT_CNPJ || '00.000.000/0001-00';
 
   try {
     console.log('Criando usuário no Firebase Authentication...');

@@ -197,7 +197,7 @@ export default function WaiterModule({
   }
 
   function notifyNewRequest(request: ServiceRequest) {
-    const title = request.type === "bill" ? "Pedido de conta" : "Chamado de garÃ§om";
+    const title = request.type === "bill" ? "Pedido de conta" : "Chamado de garçom";
     const body = `Mesa ${request.tableNumber} precisa de atendimento.`;
     setNewAlert(`${title}: ${body}`);
     window.setTimeout(() => setNewAlert(""), 8000);
@@ -206,7 +206,7 @@ export default function WaiterModule({
       try {
         new Notification(title, { body, tag: `${request.collectionName}-${request.id}` });
       } catch (notificationError) {
-        console.error("Erro ao exibir notificaÃ§Ã£o:", notificationError);
+        console.error("Erro ao exibir notificação:", notificationError);
       }
     }
   }
@@ -221,7 +221,7 @@ export default function WaiterModule({
       try {
         new Notification(title, { body, tag: `ready-order-${order.id}` });
       } catch (notificationError) {
-        console.error("Erro ao exibir notificaÃ§Ã£o do pedido pronto:", notificationError);
+        console.error("Erro ao exibir notificação do pedido pronto:", notificationError);
       }
     }
   }
@@ -248,6 +248,7 @@ export default function WaiterModule({
       await setDoc(doc(db, "restaurantStaff", user.uid), {
         restaurantId,
         waiterId,
+        role: waiterData.role || "WAITER",
         active: true,
       });
       if (!cancelled) setOrdersAccessReady(true);

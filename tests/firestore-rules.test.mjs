@@ -390,7 +390,7 @@ test("cliente só solicita liberação para uma mesa pertencente ao restaurante"
   }));
 });
 
-test("restaurante novo nÃ£o herda pedidos, pagamentos, caixa ou estoque", async () => {
+test("restaurante novo não herda pedidos, pagamentos, caixa ou estoque", async () => {
   await testEnvironment.withSecurityRulesDisabled(async (context) => {
     await setDoc(doc(context.firestore(), "restaurants/restaurant-empty"), {
       ownerEmail: "empty@example.com",

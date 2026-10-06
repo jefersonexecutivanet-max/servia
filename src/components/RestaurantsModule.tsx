@@ -50,7 +50,7 @@ type FormState = {
   password: string;
 };
 
-const PIX_KEY = "finho60@hotmail.com";
+const PIX_KEY = import.meta.env.VITE_PIX_KEY || "consulte-o-administrador";
 const SETUP_FEE = 500;
 const MONTHLY_FEE = 100;
 

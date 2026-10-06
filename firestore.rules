@@ -5,6 +5,8 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    // ATENÇÃO: Valores hardcoded aqui. Atualize se o owner mudar.
+    // Para usar valores do ambiente, o frontend usa VITE_OWNER_UID e VITE_OWNER_EMAIL.
     function isOwner() {
       return signedIn()
         && request.auth.uid == 'FOuQD7ivuuVAfDZwlsjaU2Lte753'
@@ -34,16 +36,79 @@ service cloud.firestore {
       return signedIn()
         && staffUid == request.auth.uid
         && request.resource.data.keys().hasAll(['restaurantId', 'waiterId', 'active'])
-        && request.resource.data.keys().hasOnly(['restaurantId', 'waiterId', 'active'])
+        && request.resource.data.keys().hasOnly(['restaurantId', 'waiterId', 'active', 'role'])
         && request.resource.data.active == true
         && exists(waiterPath)
         && get(waiterPath).data.uid == request.auth.uid
         && get(waiterPath).data.active == true
-        && get(waiterPath).data.restaurantId == request.resource.data.restaurantId;
+        && get(waiterPath).data.restaurantId == request.resource.data.restaurantId
+        && (!('role' in request.resource.data) || request.resource.data.role == get(waiterPath).data.role);
     }
 
     function canManageRestaurant(restaurantId) {
       return isOwner() || isActiveRestaurantOwner(restaurantId);
+    }
+
+    function isStaffRoleForRestaurant(restaurantId, expectedRole) {
+      let staffPath = /databases/$(database)/documents/restaurantStaff/$(request.auth.uid);
+      let waiterPath = /databases/$(database)/documents/waiters/$(get(staffPath).data.waiterId);
+      let role = ('role' in get(staffPath).data) ? get(staffPath).data.role : get(waiterPath).data.role;
+      return signedIn()
+        && exists(staffPath)
+        && get(staffPath).data.active == true
+        && get(staffPath).data.restaurantId == restaurantId
+        && (role == expectedRole
+          || (expectedRole == 'WAITER' && role in ['Garçom', 'Garçonete', 'Funcionário'])
+          || (expectedRole == 'FLOOR_MANAGER' && role == 'Chefe de salão'));
+    }
+
+    function isRestaurantManager(restaurantId) {
+      return canManageRestaurant(restaurantId) || isStaffRoleForRestaurant(restaurantId, 'MANAGER');
+    }
+
+    function isFloorManager(restaurantId) {
+      return isRestaurantManager(restaurantId) || isStaffRoleForRestaurant(restaurantId, 'FLOOR_MANAGER');
+    }
+
+    function isCashier(restaurantId) {
+      return canManageRestaurant(restaurantId) || isStaffRoleForRestaurant(restaurantId, 'CASHIER');
+    }
+
+    function isKitchen(restaurantId) {
+      return isStaffRoleForRestaurant(restaurantId, 'KITCHEN');
+    }
+
+    function canManageEmployees(restaurantId) {
+      return canManageRestaurant(restaurantId) || isStaffRoleForRestaurant(restaurantId, 'MANAGER');
+    }
+
+    function validKitchenOrderUpdate() {
+      return isKitchen(resource.data.restaurantId)
+        && request.resource.data.restaurantId == resource.data.restaurantId
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+        && ((resource.data.status == 'novo' && request.resource.data.status == 'preparando')
+          || (resource.data.status == 'preparando' && request.resource.data.status == 'pronto'));
+    }
+
+    function validLeadOrderUpdate() {
+      return isFloorManager(resource.data.restaurantId)
+        && request.resource.data.restaurantId == resource.data.restaurantId
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+        && request.resource.data.status in ['preparando', 'pronto', 'entregue', 'cancelado'];
+    }
+
+    function validCashierOrderClose() {
+      return isCashier(resource.data.restaurantId)
+        && request.resource.data.restaurantId == resource.data.restaurantId
+        && request.resource.data.paymentStatus == 'paid'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['paymentStatus', 'paymentId', 'paidAt']);
+    }
+
+    function validFloorTableUpdate() {
+      return isFloorManager(resource.data.restaurantId)
+        && request.resource.data.restaurantId == resource.data.restaurantId
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['status', 'guests', 'total', 'customer', 'x', 'y']);
     }
 
     function isActiveWaiterForRestaurant(waiterId, restaurantId) {
@@ -66,7 +131,6 @@ service cloud.firestore {
 
     function validWaiterClaim() {
       return signedIn()
-        && request.auth.token.email_verified == true
         && resource.data.active == true
         && resource.data.uid == ''
         && request.resource.data.uid == request.auth.uid
@@ -96,7 +160,8 @@ service cloud.firestore {
     }
 
     function validWaiterOrderDelivery() {
-      return isWaiterAssignedToTable(resource.data.restaurantId, resource.data.tableId)
+      return isStaffRoleForRestaurant(resource.data.restaurantId, 'WAITER')
+        && isWaiterAssignedToTable(resource.data.restaurantId, resource.data.tableId)
         && resource.data.status == 'pronto'
         && request.resource.data.status == 'entregue'
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']);
@@ -164,6 +229,9 @@ service cloud.firestore {
         && get(tablePath).data.restaurantId == data.restaurantId
         && get(tablePath).data.number == data.tableNumber
         && get(directoryPath).data.name == data.waiterName
+        && (!signedIn() || isFloorManager(data.restaurantId)
+          || (isStaffRoleForRestaurant(data.restaurantId, 'WAITER')
+            && get(/databases/$(database)/documents/restaurantStaff/$(request.auth.uid)).data.waiterId == data.waiterId))
         && data.updatedAt is timestamp;
     }
 
@@ -179,10 +247,10 @@ service cloud.firestore {
 
     match /menuItems/{itemId} {
       allow read: if true;
-      allow create: if isOwner() || canManageRestaurant(request.resource.data.restaurantId);
-      allow update: if isOwner() || (canManageRestaurant(resource.data.restaurantId)
+      allow create: if isOwner() || isRestaurantManager(request.resource.data.restaurantId);
+      allow update: if isOwner() || (isRestaurantManager(resource.data.restaurantId)
         && request.resource.data.restaurantId == resource.data.restaurantId);
-      allow delete: if isOwner() || canManageRestaurant(resource.data.restaurantId);
+      allow delete: if isOwner() || isRestaurantManager(resource.data.restaurantId);
     }
 
     match /restaurants/{restaurantId} {
@@ -195,27 +263,29 @@ service cloud.firestore {
 
     match /waiterDirectory/{waiterId} {
       allow get, list: if isOwner() || resource.data.active == true;
-      allow create: if isOwner() || canManageRestaurant(request.resource.data.restaurantId);
+      allow create: if isOwner() || canManageEmployees(request.resource.data.restaurantId);
       allow update: if isOwner() || (
-        canManageRestaurant(resource.data.restaurantId)
+        canManageEmployees(resource.data.restaurantId)
         && request.resource.data.restaurantId == resource.data.restaurantId
       );
-      allow delete: if isOwner() || canManageRestaurant(resource.data.restaurantId);
+      allow delete: if isOwner() || canManageEmployees(resource.data.restaurantId);
     }
 
     match /waiters/{waiterId} {
-      allow get: if isOwner() || isWaiterFor(waiterId);
+      allow get: if isOwner() || isWaiterFor(waiterId)
+        || isRestaurantManager(resource.data.restaurantId) || isFloorManager(resource.data.restaurantId);
       allow list: if isOwner()
-        || canManageRestaurant(resource.data.restaurantId)
+        || isRestaurantManager(resource.data.restaurantId)
+        || isFloorManager(resource.data.restaurantId)
         || (
           signedIn()
           && resource.data.active == true
           && resource.data.uid == request.auth.uid
         );
-      allow create: if isOwner() || canManageRestaurant(request.resource.data.restaurantId);
-      allow delete: if isOwner() || canManageRestaurant(resource.data.restaurantId);
+      allow create: if isOwner() || canManageEmployees(request.resource.data.restaurantId);
+      allow delete: if isOwner() || canManageEmployees(resource.data.restaurantId);
       allow update: if isOwner() || (
-        canManageRestaurant(resource.data.restaurantId)
+        canManageEmployees(resource.data.restaurantId)
         && request.resource.data.restaurantId == resource.data.restaurantId
       ) || validWaiterClaim() || validWaiterPasswordChange();
     }
@@ -224,135 +294,134 @@ service cloud.firestore {
       allow get: if isOwner() || (signedIn() && staffUid == request.auth.uid);
       allow list: if isOwner();
       allow create: if isOwner()
-        || canManageRestaurant(request.resource.data.restaurantId)
+        || canManageEmployees(request.resource.data.restaurantId)
         || validOwnTeamAccess(staffUid);
       allow update: if isOwner() || (
-        canManageRestaurant(resource.data.restaurantId)
+        canManageEmployees(resource.data.restaurantId)
         && request.resource.data.restaurantId == resource.data.restaurantId
       ) || validOwnTeamAccess(staffUid);
-      allow delete: if isOwner() || canManageRestaurant(resource.data.restaurantId);
+      allow delete: if isOwner() || canManageEmployees(resource.data.restaurantId);
     }
 
     match /waiterTables/{tableNumber} {
       allow get: if true;
       allow list: if isOwner()
         || isActiveRestaurantOwner(resource.data.restaurantId)
+        || isFloorManager(resource.data.restaurantId)
         || isWaiterFor(resource.data.waiterId);
-      allow create, update: if isOwner() || validWaiterAssignment();
-      allow delete: if isOwner() || canManageRestaurant(resource.data.restaurantId);
+      allow create, update: if isOwner() || isFloorManager(request.resource.data.restaurantId) || validWaiterAssignment();
+      allow delete: if isOwner() || isFloorManager(resource.data.restaurantId);
     }
 
     match /tables/{tableId} {
       allow read: if isOwner()
         || isActiveRestaurantOwner(resource.data.restaurantId)
-        || isActiveTeamMemberForRestaurant(resource.data.restaurantId);
+        || isFloorManager(resource.data.restaurantId)
+        || isCashier(resource.data.restaurantId)
+        || isStaffRoleForRestaurant(resource.data.restaurantId, 'WAITER')
+        || isWaiterFor(resource.data.waiterId);
       allow list: if isOwner()
         || isActiveRestaurantOwner(resource.data.restaurantId)
-        || isActiveTeamMemberForRestaurant(resource.data.restaurantId);
-      allow create: if canManageRestaurant(request.resource.data.restaurantId);
-      allow update: if canManageRestaurant(resource.data.restaurantId)
-        && request.resource.data.restaurantId == resource.data.restaurantId;
-      allow delete: if canManageRestaurant(resource.data.restaurantId);
+        || isFloorManager(resource.data.restaurantId)
+        || isCashier(resource.data.restaurantId)
+        || isStaffRoleForRestaurant(resource.data.restaurantId, 'WAITER')
+        || isWaiterFor(resource.data.waiterId);
+      allow create: if isRestaurantManager(request.resource.data.restaurantId);
+      allow update: if (isRestaurantManager(resource.data.restaurantId)
+        && request.resource.data.restaurantId == resource.data.restaurantId) || validFloorTableUpdate();
+      allow delete: if isRestaurantManager(resource.data.restaurantId);
     }
 
     match /orders/{orderId} {
-      allow create: if isOwner() || validCustomerOrder();
+      allow create: if isOwner() || isRestaurantManager(request.resource.data.restaurantId)
+        || isFloorManager(request.resource.data.restaurantId) || validCustomerOrder();
       allow read: if isOwner()
         || isActiveRestaurantOwner(resource.data.restaurantId)
-        || isWaiterFor(resource.data.waiterId)
-        || isActiveTeamMemberForRestaurant(resource.data.restaurantId);
-      allow update: if (canManageRestaurant(resource.data.restaurantId)
+        || isRestaurantManager(resource.data.restaurantId)
+        || isFloorManager(resource.data.restaurantId)
+        || isCashier(resource.data.restaurantId)
+        || isKitchen(resource.data.restaurantId)
+        || (isWaiterFor(resource.data.waiterId)
+          && isStaffRoleForRestaurant(resource.data.restaurantId, 'WAITER'));
+      allow update: if (isRestaurantManager(resource.data.restaurantId)
         && request.resource.data.restaurantId == resource.data.restaurantId)
-        || validWaiterOrderDelivery();
-      allow delete: if canManageRestaurant(resource.data.restaurantId);
+        || validLeadOrderUpdate() || validKitchenOrderUpdate()
+        || validCashierOrderClose() || validWaiterOrderDelivery();
+      allow delete: if isRestaurantManager(resource.data.restaurantId);
     }
 
     match /stock/{stockItemId} {
-      allow read: if isOwner() || isActiveRestaurantOwner(resource.data.restaurantId);
-      allow create: if canManageRestaurant(request.resource.data.restaurantId)
+      allow read: if isOwner() || isRestaurantManager(resource.data.restaurantId);
+      allow create: if isRestaurantManager(request.resource.data.restaurantId)
         && request.resource.data.keys().hasOnly(['restaurantId', 'name', 'category', 'quantity', 'unit', 'minQuantity', 'price', 'lastUpdated'])
-        && request.resource.data.name is string
-        && request.resource.data.quantity is number
-        && request.resource.data.quantity >= 0;
-      allow update: if canManageRestaurant(resource.data.restaurantId)
+        && request.resource.data.name is string && request.resource.data.quantity is number && request.resource.data.quantity >= 0;
+      allow update: if isRestaurantManager(resource.data.restaurantId)
         && request.resource.data.restaurantId == resource.data.restaurantId
         && request.resource.data.keys().hasOnly(['restaurantId', 'name', 'category', 'quantity', 'unit', 'minQuantity', 'price', 'lastUpdated'])
-        && request.resource.data.quantity is number
-        && request.resource.data.quantity >= 0;
-      allow delete: if canManageRestaurant(resource.data.restaurantId);
+        && request.resource.data.quantity is number && request.resource.data.quantity >= 0;
+      allow delete: if isRestaurantManager(resource.data.restaurantId);
     }
-
     match /cashTransactions/{transactionId} {
-      allow read: if isOwner() || isActiveRestaurantOwner(resource.data.restaurantId);
-      allow create: if canManageRestaurant(request.resource.data.restaurantId)
+      allow read: if isOwner() || isCashier(resource.data.restaurantId);
+      allow create: if isCashier(request.resource.data.restaurantId)
         && request.resource.data.keys().hasOnly(['restaurantId', 'type', 'category', 'description', 'amount', 'paymentMethod', 'reference', 'createdAt'])
         && (request.resource.data.type == 'entrada' || request.resource.data.type == 'saida')
-        && request.resource.data.amount is number
-        && request.resource.data.amount > 0
-        && request.resource.data.description is string
-        && request.resource.data.createdAt is timestamp;
-      allow update: if canManageRestaurant(resource.data.restaurantId)
+        && request.resource.data.amount is number && request.resource.data.amount > 0
+        && request.resource.data.description is string && request.resource.data.createdAt is timestamp;
+      allow update: if isCashier(resource.data.restaurantId)
         && request.resource.data.restaurantId == resource.data.restaurantId
         && request.resource.data.keys().hasOnly(['restaurantId', 'type', 'category', 'description', 'amount', 'paymentMethod', 'reference', 'createdAt'])
         && (request.resource.data.type == 'entrada' || request.resource.data.type == 'saida')
-        && request.resource.data.amount is number
-        && request.resource.data.amount > 0;
-      allow delete: if canManageRestaurant(resource.data.restaurantId);
+        && request.resource.data.amount is number && request.resource.data.amount > 0;
+      allow delete: if isCashier(resource.data.restaurantId);
     }
-
     match /tableCalls/{callId} {
-      allow read: if isOwner() || isWaiterFor(resource.data.waiterId);
+      allow read: if isOwner() || isRestaurantManager(resource.data.restaurantId)
+        || isFloorManager(resource.data.restaurantId) || isWaiterFor(resource.data.waiterId);
       allow create: if isOwner() || validServiceRequest();
-      allow update: if isOwner() || validTableCallUpdate();
-      allow delete: if isOwner();
+      allow update: if isOwner() || isRestaurantManager(resource.data.restaurantId)
+        || isFloorManager(resource.data.restaurantId) || validTableCallUpdate();
+      allow delete: if isOwner() || isRestaurantManager(resource.data.restaurantId);
     }
-
     match /billRequests/{requestId} {
-      allow read: if isOwner() || isWaiterFor(resource.data.waiterId);
+      allow read: if isOwner() || isRestaurantManager(resource.data.restaurantId)
+        || isFloorManager(resource.data.restaurantId) || isWaiterFor(resource.data.waiterId);
       allow create: if isOwner() || validServiceRequest();
-      allow update: if isOwner() || validTableCallUpdate();
-      allow delete: if isOwner();
+      allow update: if isOwner() || isRestaurantManager(resource.data.restaurantId)
+        || isFloorManager(resource.data.restaurantId) || validTableCallUpdate();
+      allow delete: if isOwner() || isRestaurantManager(resource.data.restaurantId);
     }
-
     match /payments/{paymentId} {
-      allow read: if isOwner() || isActiveRestaurantOwner(resource.data.restaurantId);
-      allow create: if canManageRestaurant(request.resource.data.restaurantId)
+      allow read: if isOwner() || isCashier(resource.data.restaurantId)
+        || isRestaurantManager(resource.data.restaurantId);
+      allow create: if isCashier(request.resource.data.restaurantId)
         && request.resource.data.keys().hasAll(['restaurantId', 'tableId', 'tableNumber', 'method', 'amount', 'items', 'status', 'createdAt'])
         && request.resource.data.keys().hasOnly(['restaurantId', 'tableId', 'tableNumber', 'method', 'amount', 'items', 'status', 'createdAt'])
-        && request.resource.data.restaurantId is string
-        && request.resource.data.tableId is string
-        && request.resource.data.tableNumber is int
-        && request.resource.data.amount is number
-        && request.resource.data.amount > 0
-        && request.resource.data.items is int
-        && request.resource.data.items >= 0
-        && request.resource.data.status == 'completed'
-        && request.resource.data.createdAt is timestamp
+        && request.resource.data.restaurantId is string && request.resource.data.tableId is string
+        && request.resource.data.tableNumber is int && request.resource.data.amount is number && request.resource.data.amount > 0
+        && request.resource.data.items is int && request.resource.data.items >= 0
+        && request.resource.data.status == 'completed' && request.resource.data.createdAt is timestamp
         && exists(/databases/$(database)/documents/tables/$(request.resource.data.tableId))
         && get(/databases/$(database)/documents/tables/$(request.resource.data.tableId)).data.restaurantId == request.resource.data.restaurantId
         && get(/databases/$(database)/documents/tables/$(request.resource.data.tableId)).data.number == request.resource.data.tableNumber;
-      allow update: if canManageRestaurant(resource.data.restaurantId)
+      allow update: if isCashier(resource.data.restaurantId)
         && request.resource.data.restaurantId == resource.data.restaurantId;
-      allow delete: if canManageRestaurant(resource.data.restaurantId);
+      allow delete: if isCashier(resource.data.restaurantId);
     }
-
     match /tableReleases/{releaseId} {
-      allow read: if isOwner() || isActiveRestaurantOwner(resource.data.restaurantId);
+      allow read: if isOwner() || isFloorManager(resource.data.restaurantId) || isCashier(resource.data.restaurantId);
       allow create: if request.auth == null
         && request.resource.data.keys().hasAll(['restaurantId', 'tableId', 'tableNumber', 'totalAmount', 'paymentMethod', 'status', 'createdAt'])
         && request.resource.data.keys().hasOnly(['restaurantId', 'tableId', 'tableNumber', 'totalAmount', 'paymentMethod', 'status', 'createdAt'])
-        && request.resource.data.restaurantId is string
-        && request.resource.data.tableNumber is int
-        && request.resource.data.totalAmount is number
-        && request.resource.data.status == 'pending'
-        && request.resource.data.createdAt is timestamp
-        && request.resource.data.tableId is string
+        && request.resource.data.restaurantId is string && request.resource.data.tableNumber is int
+        && request.resource.data.totalAmount is number && request.resource.data.status == 'pending'
+        && request.resource.data.createdAt is timestamp && request.resource.data.tableId is string
         && exists(/databases/$(database)/documents/tables/$(request.resource.data.tableId))
         && get(/databases/$(database)/documents/tables/$(request.resource.data.tableId)).data.restaurantId == request.resource.data.restaurantId
         && get(/databases/$(database)/documents/tables/$(request.resource.data.tableId)).data.number == request.resource.data.tableNumber;
-      allow update: if canManageRestaurant(resource.data.restaurantId)
+      allow update: if isCashier(resource.data.restaurantId)
         && request.resource.data.restaurantId == resource.data.restaurantId;
-      allow delete: if canManageRestaurant(resource.data.restaurantId);
+      allow delete: if isCashier(resource.data.restaurantId);
     }
   }
 }

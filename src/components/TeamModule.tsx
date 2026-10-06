@@ -26,6 +26,7 @@ import {
 } from "firebase/firestore";
 import { db, restaurantProvisioningAuth } from "../firebase";
 import { useRestaurantScope } from "../contexts/RestaurantContext";
+import { normalizeStaffRole, STAFF_ROLE_LABELS, type StaffRole } from "../types/roles";
 
 interface TeamMember {
   id: string;
@@ -41,7 +42,7 @@ interface TeamMember {
 
 type WaiterForm = Pick<TeamMember, "name" | "role" | "employeeNumber" | "email"> & { temporaryPassword: string };
 
-const employeeRoles = ["Funcionário", "Garçom", "Garçonete", "Chefe de salão"];
+const employeeRoles = Object.entries(STAFF_ROLE_LABELS) as [StaffRole, string][];
 
 function convertMember(
   snapshot: QueryDocumentSnapshot<DocumentData>,
@@ -50,7 +51,7 @@ function convertMember(
   return {
     id: snapshot.id,
     name: String(data.name || "Funcionário"),
-    role: String(data.role || "Funcionário"),
+    role: normalizeStaffRole(data.role),
     employeeNumber: String(data.employeeNumber || ""),
     status: data.active === false ? "inativo" : "ativo",
     uid: String(data.uid || ""),
@@ -65,13 +66,13 @@ function convertMember(
 
 const emptyForm: WaiterForm = {
   name: "",
-  role: employeeRoles[0],
+  role: "MANAGER",
   employeeNumber: "",
   email: "",
   temporaryPassword: "",
 };
 
-export default function TeamModule() {
+export default function TeamModule({ readOnly = false }: { readOnly?: boolean }) {
   const { restaurantId } = useRestaurantScope();
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
@@ -115,7 +116,7 @@ export default function TeamModule() {
   }, [restaurantId]);
 
   useEffect(() => {
-    if (!restaurantId || members.length === 0) {
+    if (!restaurantId || members.length === 0 || readOnly) {
       return;
     }
 
@@ -126,6 +127,7 @@ export default function TeamModule() {
       batch.set(doc(db, "restaurantStaff", member.uid), {
         restaurantId,
         waiterId: member.id,
+        role: member.role,
         active: member.status === "ativo",
       });
       linkedAccounts += 1;
@@ -135,7 +137,7 @@ export default function TeamModule() {
         console.error("Erro ao sincronizar acesso da equipe:", syncError);
       });
     }
-  }, [members, restaurantId]);
+  }, [members, restaurantId, readOnly]);
 
   const filteredMembers = members.filter((member) =>
     `${member.name} ${member.employeeNumber}`
@@ -204,13 +206,13 @@ export default function TeamModule() {
         const batch = writeBatch(db);
         batch.update(doc(db, "waiters", editingMember.id), {
           name: formData.name.trim(),
-          role: formData.role,
+          role: normalizeStaffRole(formData.role),
           employeeNumber: normalizedNumber,
         });
         batch.set(doc(db, "waiterDirectory", editingMember.id), {
           restaurantId,
           name: formData.name.trim(),
-          role: formData.role,
+          role: normalizeStaffRole(formData.role),
           active: editingMember.status === "ativo",
         });
         await batch.commit();
@@ -229,7 +231,7 @@ export default function TeamModule() {
         const batch = writeBatch(db);
         const accountFields = {
           name: formData.name.trim(),
-          role: formData.role,
+          role: normalizeStaffRole(formData.role),
           employeeNumber: normalizedNumber,
           restaurantId,
           email: normalizedEmail,
@@ -251,6 +253,7 @@ export default function TeamModule() {
         batch.set(doc(db, "restaurantStaff", createdAccount.user.uid), {
           restaurantId,
           waiterId: waiterRef.id,
+          role: normalizeStaffRole(formData.role),
           active: editingMember ? editingMember.status === "ativo" : true,
         });
         try {
@@ -332,6 +335,7 @@ export default function TeamModule() {
         batch.set(doc(db, "restaurantStaff", member.uid), {
           restaurantId,
           waiterId: member.id,
+          role: member.role,
           active,
         });
       }
@@ -361,10 +365,10 @@ export default function TeamModule() {
           <h1>Funcionários</h1>
           <p>Cadastre acessos e gerencie o atendimento do salão.</p>
         </div>
-        <button className="primary-button" type="button" onClick={handleAddMember}>
+        {!readOnly && <button className="primary-button" type="button" onClick={handleAddMember}>
           <Plus size={18} />
           Cadastrar funcionário
-        </button>
+        </button>}
       </div>
 
       {error && <div className="team-feedback error" role="alert">{error}</div>}
@@ -409,7 +413,7 @@ export default function TeamModule() {
             <article key={member.id} className={`team-card ${member.status === "inativo" ? "inactive" : ""}`}>
               <div className="team-card-header">
                 <div className="team-avatar"><span>🍽️</span></div>
-                <div className="team-actions">
+                {!readOnly && <div className="team-actions">
                   <button type="button" onClick={() => handleGenerateQr(member)} title="Mostrar QR de acesso" disabled={busy || member.status !== "ativo"}>
                     <QrCode size={16} />
                   </button>
@@ -419,11 +423,11 @@ export default function TeamModule() {
                   <button type="button" onClick={() => void handleDeleteMember(member)} title="Remover acesso" disabled={busy}>
                     <Trash2 size={16} />
                   </button>
-                </div>
+                </div>}
               </div>
               <div className="team-card-body">
                 <h3>{member.name}</h3>
-                <span className="role-badge">{member.role}</span>
+                <span className="role-badge">{STAFF_ROLE_LABELS[normalizeStaffRole(member.role)]}</span>
                 <div className="team-details">
                   <div><span>Número de cadastro</span><strong>{member.employeeNumber}</strong></div>
                   <div><span>Acesso ao sistema</span><strong>{member.mustChangePassword ? "Senha temporária" : member.uid ? "Ativo" : "Pendente"}</strong></div>
@@ -432,9 +436,9 @@ export default function TeamModule() {
               </div>
               <div className="team-card-footer">
                 <div className={`status-badge ${member.status}`}>{member.status === "ativo" ? "Ativo" : "Inativo"}</div>
-                <button type="button" className="toggle-status-button" onClick={() => void toggleStatus(member)} disabled={busy}>
+                {!readOnly && <button type="button" className="toggle-status-button" onClick={() => void toggleStatus(member)} disabled={busy}>
                   {member.status === "ativo" ? "Desativar acesso" : "Ativar acesso"}
-                </button>
+                </button>}
               </div>
             </article>
           ))}
@@ -456,7 +460,7 @@ export default function TeamModule() {
               <div className="form-field">
                 <label htmlFor="waiter-role">Função</label>
                 <select id="waiter-role" value={formData.role} onChange={(event) => setFormData({ ...formData, role: event.target.value })}>
-                  {employeeRoles.map((role) => <option key={role} value={role}>{role}</option>)}
+                  {employeeRoles.map(([role, label]) => <option key={role} value={role}>{label}</option>)}
                 </select>
               </div>
               <div className="form-field">
