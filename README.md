@@ -4,7 +4,7 @@ Sistema de atendimento para restaurantes em React 19, Vite, TypeScript e Firebas
 
 ## Configuração
 
-1. Instale Node.js 22+ e Firebase CLI. Copie `.env.example` para `.env.local` e preencha a configuração Firebase, `VITE_OWNER_EMAIL` com o e-mail verificado do administrador do sistema (`jeferson.executiva.net@gmail.com`) e `VITE_PIX_KEY`.
+1. Instale Node.js 22+ e Firebase CLI. Copie `.env.example` para `.env.local` e preencha a configuração Firebase, `VITE_OWNER_UID` e `VITE_OWNER_EMAIL` da conta proprietária do sistema (`finho60@hotmail.com`), e `VITE_PIX_KEY`.
 2. No Firebase Console, habilite autenticação por e-mail/senha e autenticação anônima. O cliente QR usa autenticação anônima; App Check pode ser habilitado com `VITE_ENABLE_APP_CHECK=true` e `VITE_RECAPTCHA_SITE_KEY` após configurar o provedor no Console.
 3. Instale dependências (`npm ci`), execute `npm run dev` e configure o restaurante/equipe no painel.
 4. Para QR de mesa, defina `VITE_PUBLIC_BASE_URL` como a origem HTTPS pública desejada. Gere/rotacione o token na tela Mesas e reimprima os QR Codes. Mesas antigas sem token seguem aceitas para compatibilidade.
@@ -33,6 +33,6 @@ Veja `.env.example`. App Check fica desligado por padrão. `VITE_CALL_ESCALATION
 
 ## Migração e segurança
 
-As alterações de schema são aditivas e mantêm leitura de dados antigos. O proprietário do sistema é identificado pelo e-mail verificado configurado em `VITE_OWNER_EMAIL`; o proprietário do restaurante é identificado separadamente pelo UID da conta corresponder ao ID do restaurante e pelo campo `ownerEmail`. Antes de aplicar as regras, faça backup e migre o diretório público de garçons. Tokens de mesa devem ser tratados como segredos: rotacione-os se um QR for exposto.
+As alterações de schema são aditivas e mantêm leitura de dados antigos. finho60 é o proprietário do sistema e libera/cadastra restaurantes. A conta do restaurante é identificada separadamente pelo UID corresponder ao ID do restaurante e pelo campo `ownerEmail`; o restaurante autorizado administrado por jeferson tem acesso total apenas aos próprios dados e funcionários. Antes de aplicar as regras, faça backup e migre o diretório público de garçons. Tokens de mesa devem ser tratados como segredos: rotacione-os se um QR for exposto.
 
 O token `VERCEL_OIDC_TOKEN` incluído no arquivo ZIP precisa ser invalidado no provedor. Para limpar o histórico Git, faça backup e execute, após instalar `git-filter-repo`, `git filter-repo --path VERCEL_OIDC_TOKEN --invert-paths`; isso reescreve commits e exige coordenar o novo push com colaboradores.

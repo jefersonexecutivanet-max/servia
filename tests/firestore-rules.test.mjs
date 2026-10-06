@@ -257,59 +257,32 @@ test("garçom desativado perde acesso mesmo com uma sessão ainda válida", asyn
   await assertFails(getDoc(doc(db, "tableCalls/call-1")));
 });
 
-test("administrador do sistema acessa a equipe e os chamados", async () => {
-  const db = testEnvironment.authenticatedContext("system-admin-uid", {
-    email: "jeferson.executiva.net@gmail.com",
-    email_verified: true,
-  }).firestore();
+test("system administrator manages restaurants and staff", async () => {
+  const db = testEnvironment.authenticatedContext("FOuQD7ivuuVAfDZwlsjaU2Lte753", { email: "finho60@hotmail.com", email_verified: false }).firestore();
   await assertSucceeds(getDoc(doc(db, "waiters/waiter-1")));
   await assertSucceeds(getDocs(collection(db, "tableCalls")));
-  await assertSucceeds(setDoc(doc(db, "menuItems/item-1"), { name: "Suco" }));
-  await assertSucceeds(setDoc(doc(db, "restaurants/new-restaurant"), {
-    name: "Restaurante Novo",
-    cnpj: "12345678000199",
-    ownerEmail: "novo@example.com",
-    status: "pending_payment",
-    paymentStatus: "pending",
-  }));
+  await assertSucceeds(setDoc(doc(db, "menuItems/item-1"), { name: "Juice" }));
+  await assertSucceeds(setDoc(doc(db, "restaurants/new-restaurant"), { name: "New restaurant", cnpj: "12345678000199", ownerEmail: "new@example.com", status: "pending_payment", paymentStatus: "pending" }));
   assert.equal((await getDocs(collection(db, "restaurants"))).size, 3);
-  await assertSucceeds(setDoc(doc(db, "restaurants/system-admin-uid"), {
-    restaurant: { name: "Servia Restaurante", cnpj: "00000000000000" },
-    payment: { pixKey: "pix@example.test" },
-  }));
+  await assertSucceeds(setDoc(doc(db, "restaurants/FOuQD7ivuuVAfDZwlsjaU2Lte753"), { restaurant: { name: "Servia Restaurant", cnpj: "00000000000000" }, payment: { pixKey: "pix@example.test" } }));
 });
 
-test("proprietário do sistema exige o e-mail verificado", async () => {
-  const wrongEmail = testEnvironment.authenticatedContext("system-admin-uid", {
-    email: "other@example.com",
-    email_verified: true,
-  }).firestore();
-  const unverified = testEnvironment.authenticatedContext("system-admin-uid", {
-    email: "jeferson.executiva.net@gmail.com",
-    email_verified: false,
-  }).firestore();
-  const owner = testEnvironment.authenticatedContext("system-admin-uid", {
-    email: "jeferson.executiva.net@gmail.com",
-    email_verified: true,
-  }).firestore();
-
+test("system owner requires matching uid and email", async () => {
+  const wrongUid = testEnvironment.authenticatedContext("other-uid", { email: "finho60@hotmail.com", email_verified: true }).firestore();
+  const wrongEmail = testEnvironment.authenticatedContext("FOuQD7ivuuVAfDZwlsjaU2Lte753", { email: "other@example.com", email_verified: true }).firestore();
+  const owner = testEnvironment.authenticatedContext("FOuQD7ivuuVAfDZwlsjaU2Lte753", { email: "finho60@hotmail.com", email_verified: false }).firestore();
+  await assertFails(getDoc(doc(wrongUid, "waiters/waiter-1")));
   await assertFails(getDoc(doc(wrongEmail, "waiters/waiter-1")));
-  await assertFails(getDoc(doc(unverified, "waiters/waiter-1")));
   await assertSucceeds(getDoc(doc(owner, "waiters/waiter-1")));
-  await assertFails(setDoc(doc(wrongEmail, "restaurants/other"), { restaurant: { name: "Unauthorized" } }));
+  await assertFails(setDoc(doc(wrongUid, "restaurants/other"), { restaurant: { name: "Unauthorized" } }));
 });
 
-test("proprietário de restaurante gerencia a própria equipe sem privilégios do sistema", async () => {
+test("restaurant owner manages own staff without system privileges", async () => {
   await testEnvironment.withSecurityRulesDisabled(async (context) => {
-    await updateDoc(doc(context.firestore(), "restaurants/restaurant-a"), { ownerEmail: "restaurant-owner@example.com" });
+    await updateDoc(doc(context.firestore(), "restaurants/restaurant-a"), { ownerEmail: "jeferson.executiva.net@gmail.com" });
   });
-  const owner = testEnvironment.authenticatedContext("restaurant-a", {
-    email: "restaurant-owner@example.com",
-    email_verified: true,
-  }).firestore();
-  await assertSucceeds(setDoc(doc(owner, "waiterDirectory/new-staff"), {
-    restaurantId: "restaurant-a", name: "New staff", role: "WAITER", active: true,
-  }));
+  const owner = testEnvironment.authenticatedContext("restaurant-a", { email: "jeferson.executiva.net@gmail.com", email_verified: true }).firestore();
+  await assertSucceeds(setDoc(doc(owner, "waiterDirectory/new-staff"), { restaurantId: "restaurant-a", name: "New staff", role: "WAITER", active: true }));
   await assertFails(getDoc(doc(owner, "waiters/waiter-2")));
 });
 

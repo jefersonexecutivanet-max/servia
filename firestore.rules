@@ -5,11 +5,11 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    // System owner uses the verified email below; restaurant owners are separate.
+    // Proprietário do sistema; atualize estes dois valores se a conta mudar.
     function isOwner() {
       return signedIn()
-        && request.auth.token.email == 'jeferson.executiva.net@gmail.com'
-        && request.auth.token.email_verified == true;
+        && request.auth.uid == 'FOuQD7ivuuVAfDZwlsjaU2Lte753'
+        && request.auth.token.email == 'finho60@hotmail.com';
     }
 
     function isActiveRestaurantOwner(restaurantId) {
