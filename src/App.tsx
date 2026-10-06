@@ -121,14 +121,12 @@ function getTableClass(status: TableStatus) {
 }
 
 const ownerIdentity = {
-  uid: import.meta.env.VITE_OWNER_UID || "",
   email: import.meta.env.VITE_OWNER_EMAIL || "",
 };
 
 function isSystemOwner(user: Pick<User, "uid" | "email"> | null | undefined): boolean {
-  if (!user || !ownerIdentity.uid || !ownerIdentity.email) return false;
-  return user.uid === ownerIdentity.uid
-    && user.email?.toLocaleLowerCase("pt-BR") === ownerIdentity.email.toLocaleLowerCase("pt-BR");
+  if (!user || !ownerIdentity.email) return false;
+  return user.email?.toLocaleLowerCase("pt-BR") === ownerIdentity.email.toLocaleLowerCase("pt-BR");
 }
 
 /* =========================================================

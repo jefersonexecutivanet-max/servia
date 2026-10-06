@@ -8,7 +8,6 @@ service cloud.firestore {
     // Proprietário do sistema; atualize estes dois valores se a conta mudar.
     function isOwner() {
       return signedIn()
-        && request.auth.uid == 'FOuQD7ivuuVAfDZwlsjaU2Lte753'
         && request.auth.token.email == 'finho60@hotmail.com';
     }
 
