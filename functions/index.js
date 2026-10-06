@@ -25,6 +25,9 @@ const RATE_WINDOW_MS = 15 * 60 * 1000;
 const RATE_RETENTION_MS = 24 * 60 * 60 * 1000;
 const MAX_CODE_ATTEMPTS = 5;
 const MAX_IP_ATTEMPTS = 25;
+const callableOptions = {
+  cors: [/^https:\/\/[a-z0-9-]+\.vercel\.app$/, "http://localhost:5173"],
+};
 function isSystemOwner(request) {
   return request.auth?.uid === SYSTEM_OWNER_UID
     && String(request.auth.token.email || "").toLowerCase() === SYSTEM_OWNER_EMAIL;
@@ -191,7 +194,7 @@ async function reserveEmployeeCode(transaction, waiterRef, restaurantId, role, n
   return employeePublicData(waiterRef.id, waiterData);
 }
 
-exports.createEmployee = onCall(async (request) => {
+exports.createEmployee = onCall(callableOptions, async (request) => {
   const name = requireString(request.data?.name, "Nome", 100);
   const restaurantId = requireString(request.data?.restaurantId, "Restaurante", 128);
   const role = request.data?.role;
@@ -220,7 +223,7 @@ exports.createEmployee = onCall(async (request) => {
   }
 });
 
-exports.updateEmployee = onCall(async (request) => {
+exports.updateEmployee = onCall(callableOptions, async (request) => {
   const restaurantId = requireString(request.data?.restaurantId, "Restaurante", 128);
   const employeeId = requireString(request.data?.employeeId, "Funcionário", 128);
   const { actor } = await assertCanManageRestaurant(request, restaurantId);
@@ -267,7 +270,7 @@ exports.updateEmployee = onCall(async (request) => {
   return employeePublicData(employeeId, { ...current, name, role, active, employeeCode });
 });
 
-exports.deleteEmployee = onCall(async (request) => {
+exports.deleteEmployee = onCall(callableOptions, async (request) => {
   const restaurantId = requireString(request.data?.restaurantId, "Restaurante", 128);
   const employeeId = requireString(request.data?.employeeId, "Funcionário", 128);
   const { actor } = await assertCanManageRestaurant(request, restaurantId);
@@ -312,7 +315,7 @@ async function resolveEmployeeForLogin(data) {
   return { id: waiterSnapshot.id, data: waiterSnapshot.data() };
 }
 
-exports.loginEmployee = onCall(async (request) => {
+exports.loginEmployee = onCall(callableOptions, async (request) => {
   const now = Date.now();
   const rawCode = typeof request.data?.employeeCode === "string" ? normalizeEmployeeCode(request.data.employeeCode) : "";
   const rawWaiterId = typeof request.data?.waiterId === "string" ? request.data.waiterId.trim() : "";
@@ -360,7 +363,7 @@ exports.loginEmployee = onCall(async (request) => {
   return { token, employee: employeePublicData(employee.id, data) };
 });
 
-exports.changeOwnEmployeePin = onCall(async (request) => {
+exports.changeOwnEmployeePin = onCall(callableOptions, async (request) => {
   const actor = requireSignedIn(request);
   const employeeId = actor.token.employeeId;
   const restaurantId = actor.token.restaurantId;

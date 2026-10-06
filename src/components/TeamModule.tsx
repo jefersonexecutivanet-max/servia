@@ -190,7 +190,12 @@ export default function TeamModule({ readOnly = false }: { readOnly?: boolean })
       setShowModal(false);
     } catch (saveError) {
       console.error("Erro ao salvar funcionário:", saveError);
-      setError(saveError instanceof Error ? saveError.message : "Não foi poss?vel salvar o cadastro.");
+      const errorCode = typeof saveError === "object" && saveError && "code" in saveError
+        ? String((saveError as { code: string }).code)
+        : "";
+      setError(errorCode === "functions/internal" || errorCode === "functions/unavailable"
+        ? "NÃ£o foi possÃ­vel conectar Ã  funÃ§Ã£o de cadastro. Publique as Cloud Functions no projeto Firebase usado pelo Vercel e confira o CORS."
+        : saveError instanceof Error ? saveError.message : "NÃ£o foi possÃ­vel salvar o cadastro.");
     } finally {
       setBusy(false);
     }
