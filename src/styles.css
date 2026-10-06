@@ -2272,6 +2272,7 @@ input:focus-visible {
 
 .restaurant-row-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
 

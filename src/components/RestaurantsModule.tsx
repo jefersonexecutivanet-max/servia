@@ -6,12 +6,14 @@ import {
   Plus,
   Search,
   Store,
+  Trash2,
   UserRoundPlus,
   X,
 } from "lucide-react";
 import {
   Timestamp,
   collection,
+  deleteDoc,
   doc,
   onSnapshot,
   orderBy,
@@ -278,6 +280,27 @@ export default function RestaurantsModule({
     }
   }
 
+  async function deleteRestaurant(restaurant: RestaurantAccount) {
+    if (busy) return;
+    const confirmed = window.confirm(
+      `Excluir o cadastro de ${restaurant.name}? O acesso será revogado, mas a conta de login do gerente e os dados relacionados em outras coleções não serão apagados. Esta ação não pode ser desfeita.`,
+    );
+    if (!confirmed) return;
+
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      await deleteDoc(doc(db, "restaurants", restaurant.id));
+      setNotice(`Cadastro de ${restaurant.name} excluído.`);
+    } catch (deleteError) {
+      console.error("Erro ao excluir restaurante:", deleteError);
+      setError("Não foi possível excluir o cadastro. Confira se as regras do Firestore foram publicadas.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function copyPixKey() {
     try {
       await navigator.clipboard.writeText(PIX_KEY);
@@ -354,6 +377,15 @@ export default function RestaurantsModule({
                     <Check size={17} /> Confirmar Pix {restaurant.monthlyPaidUntil ? "mensal" : "e liberar"}
                   </button>
                 )}
+                <button
+                  className="secondary-button"
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void deleteRestaurant(restaurant)}
+                  aria-label={`Excluir cadastro de ${restaurant.name}`}
+                >
+                  <Trash2 size={17} /> Excluir
+                </button>
               </div>
             </article>
               );
