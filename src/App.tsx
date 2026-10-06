@@ -309,6 +309,8 @@ function LoginScreen({ waiterMode = false, waiterEmail = "" }: { waiterMode?: bo
                   <UserRound size={17} />
 
                   <input
+                    id="registration-name"
+                    name="name"
                     type="text"
                     placeholder="Seu nome"
                     value={name}
@@ -328,6 +330,8 @@ function LoginScreen({ waiterMode = false, waiterEmail = "" }: { waiterMode?: bo
                 <span className="input-at">@</span>
 
                 <input
+                  id="account-email"
+                  name="email"
                   type="email"
                   placeholder="seu@email.com"
                   value={email}
@@ -343,7 +347,7 @@ function LoginScreen({ waiterMode = false, waiterEmail = "" }: { waiterMode?: bo
               <div className="form-field">
                 <label>Conta cadastrada pelo gestor</label>
                 <div className="input-wrapper">
-                  <input type="email" value={email} readOnly aria-label="E-mail da conta cadastrada" />
+                  <input id="waiter-account-email" name="email" type="email" value={email} readOnly aria-label="E-mail da conta cadastrada" />
                 </div>
               </div>
             )}
@@ -355,6 +359,8 @@ function LoginScreen({ waiterMode = false, waiterEmail = "" }: { waiterMode?: bo
                 <span className="password-dot">â€¢â€¢â€¢</span>
 
                 <input
+                  id="account-password"
+                  name="password"
                   type="password"
                   placeholder={waiterMode ? "Digite a senha fornecida pelo gestor" : "Sua senha"}
                   value={password}
@@ -403,6 +409,8 @@ function LoginScreen({ waiterMode = false, waiterEmail = "" }: { waiterMode?: bo
                 <div className="input-wrapper">
                   <span className="input-at">@</span>
                   <input
+                    id="recovery-email"
+                    name="recoveryEmail"
                     type="email"
                     placeholder="seu@email.com"
                     value={email}
@@ -1771,13 +1779,13 @@ function WaiterPasswordChange({ user, waiterId, onComplete }: {
             <div className="form-field">
               <label>Nova senha</label>
               <div className="input-wrapper">
-                <input type="password" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} required minLength={6} placeholder="MÃ­nimo de 6 caracteres" />
+                <input id="new-password" name="newPassword" type="password" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} required minLength={6} placeholder="MÃ­nimo de 6 caracteres" />
               </div>
             </div>
             <div className="form-field">
               <label>Confirme a nova senha</label>
               <div className="input-wrapper">
-                <input type="password" autoComplete="new-password" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} required minLength={6} placeholder="Digite a senha novamente" />
+                <input id="confirm-new-password" name="confirmNewPassword" type="password" autoComplete="new-password" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} required minLength={6} placeholder="Digite a senha novamente" />
               </div>
             </div>
             {error && <div className="login-error" role="alert">{error}</div>}
