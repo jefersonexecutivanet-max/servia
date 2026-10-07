@@ -2057,13 +2057,15 @@ export default function App() {
                 let staffData: Record<string, unknown> | undefined;
                 if (waiterRouteId) {
                   const memberRef = doc(db, "waiters", waiterRouteId);
-                  try {
-                    await updateDoc(memberRef, {
-                      uid: currentUser.uid,
-                      email: currentUser.email,
-                    });
-                  } catch {
-                    // Existing links are read-only after the first account claims them.
+                  if (!isPinEmployee) {
+                    try {
+                      await updateDoc(memberRef, {
+                        uid: currentUser.uid,
+                        email: currentUser.email,
+                      });
+                    } catch {
+                      // Existing links are read-only after the first account claims them.
+                    }
                   }
                   memberSnapshot = await getDoc(memberRef);
                 } else {
