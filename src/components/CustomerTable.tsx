@@ -1,5 +1,5 @@
 import { tableDocId } from "../utils/ids";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ShoppingBag,
   Plus,
@@ -33,6 +33,7 @@ import { useMenuCatalog } from "../hooks/useMenuCatalog";
 import type { Product } from "../types/menu";
 import { formatCurrency } from "../utils/format";
 import { cartItemKey } from "../utils/cart";
+import { orderApi } from "../utils/employeeApi";
 
 type CartItem = {
   product: Product;
@@ -69,6 +70,7 @@ export default function CustomerTable({
   const waiterStorageKey = `servia-table-${restaurantId}-${tableNumber}-waiter`;
 
   const [cart, setCart] = useState<Record<string, CartItem>>({});
+  const pendingOrderRef = useRef<{ fingerprint: string; key: string } | null>(null);
   const [activeCategory, setActiveCategory] = useState("Todos");
   const [cartOpen, setCartOpen] = useState(false);
   const [customizing, setCustomizing] = useState<Product | null>(null);
@@ -281,44 +283,56 @@ useEffect(() => {
       if (!customerUid) throw new Error("A sessão anônima ainda não está pronta.");
       const orderItems = cartItems.map((item) => ({
           productId: item.product.id,
-          name: item.product.name,
           quantity: item.quantity,
-          price: itemPrice(item),
           extras: item.product.extras
             .filter((extra) => item.extraIds.includes(extra.id))
-            .map((extra) => extra.name),
+            .map((extra) => extra.id),
           notes: item.notes,
         }));
-      const batch = writeBatch(db);
-      for (let index = 0; index < orderItems.length; index += 10) {
-        const items = orderItems.slice(index, index + 10);
-        const orderTotal = items.reduce((sum, item) => sum + item.quantity * item.price, 0);
-        batch.set(doc(collection(db, "orders")), {
-          restaurantId,
-          tableId: `${tableDocId(restaurantId, tableNumber)}`,
-          tableNumber,
-          ...(currentWaiterId ? { waiterId: currentWaiterId } : {}),
-          customerUid,
-          ...(accessToken ? { accessToken } : {}),
-          status: "novo",
-          source: "qrcode",
-          items,
-          total: orderTotal,
-          createdAt: serverTimestamp(),
-        });
+
+      const requestFingerprint = JSON.stringify({
+        restaurantId,
+        tableId: `${tableDocId(restaurantId, tableNumber)}`,
+        tableNumber,
+        waiterId: currentWaiterId || "",
+        accessToken: accessToken || "",
+        items: orderItems,
+      });
+      if (pendingOrderRef.current?.fingerprint !== requestFingerprint) {
+        pendingOrderRef.current = { fingerprint: requestFingerprint, key: crypto.randomUUID() };
       }
-      batch.update(doc(db, "tables", `${tableDocId(restaurantId, tableNumber)}`), { lastOrderAt: serverTimestamp() });
-      await batch.commit();
+      const idempotencyKey = pendingOrderRef.current.key;
+      await orderApi("create", {
+        restaurantId,
+        tableId: `${tableDocId(restaurantId, tableNumber)}`,
+        tableNumber,
+        ...(currentWaiterId ? { waiterId: currentWaiterId } : {}),
+        ...(accessToken ? { accessToken } : {}),
+        idempotencyKey,
+        items: orderItems,
+      });
 
       setSent(true);
       setCart({});
       setCartOpen(false);
+      pendingOrderRef.current = null;
     } catch (error) {
       console.error("Erro ao enviar pedido:", error);
 
-      showMessage(
-        "Não foi possível enviar o pedido agora. Verifique a conexão.",
-      );
+      const code = typeof error === "object" && error && "code" in error
+        ? String((error as { code: string }).code)
+        : "";
+      if (code === "resource-exhausted") {
+        showMessage("Aguarde 30 segundos antes de enviar novo pedido para esta mesa.");
+      } else if (code === "not-found") {
+        showMessage("Produto ou adicional não encontrado no cardápio.");
+      } else if (code === "permission-denied") {
+        showMessage("Token de acesso inválido ou restaurante indisponível.");
+      } else {
+        showMessage(
+          "Não foi possível enviar o pedido agora. Verifique a conexão.",
+        );
+      }
     } finally {
       setActionLoading(null);
     }

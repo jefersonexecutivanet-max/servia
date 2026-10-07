@@ -359,7 +359,8 @@ export default async function employeeApi(action, request, response) {
   if (request.method !== "POST") return response.status(405).json({ error: { code: "method-not-allowed", message: "Método não permitido." } });
 
   const origin = request.headers.origin;
-  if (origin && !/^https:\/\/[a-z0-9-]+\.vercel\.app$/.test(origin) && origin !== "http://localhost:5173") {
+  const allowedOrigins = (process.env.ALLOWED_ORIGINS || "http://localhost:5173").split(",").map((o) => o.trim());
+  if (origin && !allowedOrigins.includes(origin)) {
     return response.status(403).json({ error: { code: "permission-denied", message: "Origem não autorizada." } });
   }
   if (origin) {

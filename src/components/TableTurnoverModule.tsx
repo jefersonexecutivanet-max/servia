@@ -8,9 +8,10 @@ import {
 import { formatCurrency } from "../utils/format";
 import { calculateOrderTotal } from "../utils/orders";
 import type { TableStatus } from "../types/table";
-import { collection, doc, getDoc, onSnapshot, query, serverTimestamp, where, writeBatch } from "firebase/firestore";
+import { collection, onSnapshot, query, where } from "firebase/firestore";
 import { db } from "../firebase";
 import { useRestaurantScope } from "../contexts/RestaurantContext";
+import { paymentApi } from "../utils/employeeApi";
 
 type TableCall = {
   id: string;
@@ -199,30 +200,10 @@ export default function TableTurnoverModule({ embedded = false }: { embedded?: b
       return;
     }
     try {
-      const assignmentRef = doc(db, "waiterTables", `${restaurantId}_${tableNumber}`);
-      const assignmentSnapshot = await getDoc(assignmentRef);
-      const batch = writeBatch(db);
-      const paymentRef = doc(collection(db, "payments"));
-      batch.set(paymentRef, {
-        restaurantId,
-        tableId: `${restaurantId}_${tableNumber}`,
-        tableNumber,
-        method,
-        amount: table.total,
-        items: openOrders.filter((order) => order.tableNumber === tableNumber)
-          .reduce((count, order) => count + (Array.isArray(order.items) ? order.items.reduce((sum: number, item: any) => sum + (Number(item.quantity) || 0), 0) : 0), 0),
-        status: "completed",
-        createdAt: serverTimestamp(),
-      });
-      openOrders.filter((order) => order.tableNumber === tableNumber).forEach((order) => {
-        batch.update(doc(db, "orders", order.id), { paymentStatus: "paid", paymentId: paymentRef.id, paidAt: serverTimestamp() });
-      });
-      batch.update(doc(db, "tables", `${restaurantId}_${tableNumber}`), { status: "livre", guests: 0, total: 0, customer: "" });
-      if (assignmentSnapshot.exists()) batch.delete(assignmentRef);
-      await batch.commit();
+      await paymentApi("close", { restaurantId, tableNumber, paymentMethod: method });
     } catch (error) {
       console.error("Erro ao liberar mesa:", error);
-      window.alert("Não foi possível confirmar o recebimento e liberar a mesa.");
+      window.alert(error instanceof Error ? error.message : "Não foi possível confirmar o recebimento e liberar a mesa.");
     }
   }
 

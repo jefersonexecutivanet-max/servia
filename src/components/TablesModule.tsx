@@ -24,12 +24,13 @@ import {
 
 import { formatCurrency } from "../utils/format";
 import { generatePrintContent, printContent as printToPrinter, getUserPrinterSettings } from "../utils/printer";
-import { collection, deleteDoc, deleteField, doc, onSnapshot, query, setDoc, updateDoc, where, getDocs, serverTimestamp, runTransaction } from "firebase/firestore";
+import { collection, deleteDoc, doc, onSnapshot, query, setDoc, updateDoc, where, getDocs } from "firebase/firestore";
 import { db } from "../firebase";
 import { useRestaurantScope } from "../contexts/RestaurantContext";
 import type { Table, TableStatus } from "../types/table";
 import { generateAccessToken } from "../utils/tokens";
 import { calculateOrderTotal } from "../utils/orders";
+import { paymentApi } from "../utils/employeeApi";
 
 const initialTables: Table[] = [];
 
@@ -480,35 +481,25 @@ export default function TablesModule() {
   async function confirmCloseTable() {
     if (!selectedTable || !restaurantId) return;
     const tableNumber = selectedTable.number;
-    const tableId = restaurantId + "_" + tableNumber;
-    const tableRef = doc(db, "tables", tableId);
-    const assignmentRef = doc(db, "waiterTables", tableId);
-    const paymentRef = doc(collection(db, "payments"));
     let committed = false;
     try {
-      const orderQuery = query(collection(db, "orders"), where("restaurantId", "==", restaurantId), where("tableNumber", "==", tableNumber));
-      const orderCandidates = await getDocs(orderQuery);
-      const finalized = await runTransaction(db, async (transaction) => {
-        const orderSnapshots = await Promise.all(orderCandidates.docs.map((item) => transaction.get(doc(db, "orders", item.id))));
-        const [tableSnapshot, assignmentSnapshot] = await Promise.all([transaction.get(tableRef), transaction.get(assignmentRef)]);
-        if (!tableSnapshot.exists()) throw new Error("Table no longer exists");
-        const activeOrders = orderSnapshots.filter((item) => item.exists() && item.data()!.status !== "cancelado" && item.data()!.paymentStatus !== "paid");
-        const items = activeOrders.flatMap((item) => Array.isArray(item.data()!.items) ? item.data()!.items : []);
-const subtotal = calculateOrderTotal(items);
-        if (subtotal <= 0) throw new Error("No unpaid items remain on this table");
-        const serviceFeePercent = paymentSettings.serviceFee / 100;
-        const amount = subtotal * (1 + serviceFeePercent);
-        transaction.set(paymentRef, { restaurantId, tableId, tableNumber, method: paymentMethod, amount, items: items.reduce((sum, item) => sum + (Number(item.quantity) || 0), 0), status: "completed", createdAt: serverTimestamp() });
-        activeOrders.forEach((item) => transaction.update(doc(db, "orders", item.id), { paymentStatus: "paid", paymentId: paymentRef.id, paidAt: serverTimestamp() }));
-        transaction.update(tableRef, { status: "livre", guests: 0, total: 0, customer: deleteField() });
-        if (assignmentSnapshot.exists()) transaction.delete(assignmentRef);
-        return { items, amount, subtotal, waiterName: String(assignmentSnapshot.data()?.waiterName || "Nao informado"), diverged: activeOrders.some((item) => Math.abs((Number(item.data()!.total) || 0) - calculateOrderTotal(Array.isArray(item.data()!.items) ? item.data()!.items : [])) > 0.01) };
+      const finalized = await paymentApi<{ items: any[]; amount: number; serviceFee: number; waiterName: string }>("close", {
+        restaurantId,
+        tableNumber,
+        paymentMethod,
       });
       committed = true;
-      if (finalized.diverged) window.alert("Um ou mais pedidos tinham total gravado diferente dos itens. A conta foi recalculada pelos itens.");
       const userPrinterSettings = getUserPrinterSettings();
       if (userPrinterSettings.printerEnabled) {
-        const billContent = generatePrintContent("CONTA FINALIZADA", "MESA-" + tableNumber + "-" + Date.now().toString().slice(-6), tableNumber, finalized.items, finalized.amount, { Pagamento: paymentMethod, "Taxa de servico": formatCurrency(finalized.amount - finalized.subtotal), Garcom: finalized.waiterName }, userPrinterSettings.paperWidth);
+        const billContent = generatePrintContent(
+          "CONTA FINALIZADA",
+          "MESA-" + tableNumber + "-" + Date.now().toString().slice(-6),
+          tableNumber,
+          finalized.items,
+          finalized.amount,
+          { Pagamento: paymentMethod, "Taxa de servico": formatCurrency(finalized.serviceFee), Garcom: finalized.waiterName },
+          userPrinterSettings.paperWidth,
+        );
         await printToPrinter(billContent, userPrinterSettings);
       }
       closeAllModals();

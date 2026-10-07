@@ -188,7 +188,7 @@ test("garçom só lê e atualiza chamados atribuídos à própria conta", async 
   }));
 });
 
-test("pedido de cliente só pode indicar um garçom ativo", async (t) => {
+test("cliente anônimo não pode criar pedidos diretamente no Firestore (deve usar API segura)", async (t) => {
   const db = testEnvironment.authenticatedContext("customer-a", { firebase: { sign_in_provider: "anonymous" } }).firestore();
   const validOrder = {
     restaurantId: "restaurant-a",
@@ -203,29 +203,29 @@ test("pedido de cliente só pode indicar um garçom ativo", async (t) => {
     customerUid: "customer-a",
   };
 
-  await t.test("allows an active waiter in tenant A", async () => {
-    await assertSucceeds(writeCustomerOrder(db, validOrder));
+  await t.test("rejects direct order creation by anonymous client", async () => {
+    await assertFails(writeCustomerOrder(db, validOrder));
   });
-  await t.test("allows an active waiter in tenant B only for tenant B orders", async () => {
-    await assertSucceeds(writeCustomerOrder(db, {
+  await t.test("rejects order with missing waiter", async () => {
+    await assertFails(writeCustomerOrder(db, {
+      ...validOrder,
+      waiterId: "missing-waiter",
+    }));
+  });
+  await t.test("rejects order without waiter assignment", async () => {
+    await clearOrderCooldown("restaurant-a_12");
+    const unassignedOrder = { ...validOrder };
+    delete unassignedOrder.waiterId;
+    await assertFails(writeCustomerOrder(db, unassignedOrder));
+  });
+  await t.test("rejects order for another restaurant", async () => {
+    await assertFails(writeCustomerOrder(db, {
       ...validOrder,
       restaurantId: "restaurant-b",
       tableId: "restaurant-b_15",
       tableNumber: 15,
       waiterId: "waiter-2",
     }));
-  });
-  await t.test("rejects a missing waiter", async () => {
-    await assertFails(writeCustomerOrder(db, {
-      ...validOrder,
-      waiterId: "missing-waiter",
-    }));
-  });
-  await t.test("allows a QR order before waiter assignment", async () => {
-    await clearOrderCooldown("restaurant-a_12");
-    const unassignedOrder = { ...validOrder };
-    delete unassignedOrder.waiterId;
-    await assertSucceeds(writeCustomerOrder(db, unassignedOrder));
   });
 });
 
@@ -351,7 +351,7 @@ test("conta verificada pode vincular somente um cadastro ainda não reivindicado
   }));
 });
 
-test("pedido público exige o token quando a mesa possui um", async () => {
+test("token válido da mesa não permite criar pedido diretamente no Firestore", async () => {
   await testEnvironment.withSecurityRulesDisabled(async (context) => {
     await updateDoc(doc(context.firestore(), "tables/restaurant-a_12"), { accessToken: "a".repeat(48) });
   });
@@ -363,7 +363,7 @@ test("pedido público exige o token quando a mesa possui um", async () => {
   };
   await assertFails(addDoc(collection(db, "orders"), order));
   await assertFails(addDoc(collection(db, "orders"), { ...order, accessToken: "b".repeat(48) }));
-  await assertSucceeds(writeCustomerOrder(db, { ...order, accessToken: "a".repeat(48) }));
+  await assertFails(writeCustomerOrder(db, { ...order, accessToken: "a".repeat(48) }));
 });
 
 test("chamado tokenizado impede spam enquanto estiver pendente", async () => {
@@ -398,6 +398,42 @@ test("dono de restaurante não lê comandas de outro tenant", async () => {
   }));
 });
 
+test("pagamentos de pedidos só são registrados pela API e pedidos pagos ficam imutáveis", async () => {
+  await testEnvironment.withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(), "orders/paid-order"), {
+      restaurantId: "restaurant-a",
+      tableNumber: 12,
+      status: "entregue",
+      paymentStatus: "paid",
+      paymentId: "payment-a",
+      total: 25,
+    });
+    await setDoc(doc(context.firestore(), "restaurantStaff/cashier-a"), {
+      restaurantId: "restaurant-a",
+      role: "CASHIER",
+      active: true,
+    });
+  });
+
+  const owner = testEnvironment.authenticatedContext("restaurant-a", {
+    email: "owner-a@example.com",
+    email_verified: true,
+  }).firestore();
+  const cashier = testEnvironment.authenticatedContext("cashier-a").firestore();
+
+  await assertFails(updateDoc(doc(owner, "orders/order-1"), {
+    paymentStatus: "paid",
+    paymentId: "forged-payment",
+  }));
+  await assertFails(updateDoc(doc(cashier, "orders/order-1"), {
+    paymentStatus: "paid",
+    paymentId: "forged-payment",
+  }));
+  await assertFails(updateDoc(doc(owner, "orders/paid-order"), { total: 0.01 }));
+  await assertFails(updateDoc(doc(owner, "orders/paid-order"), { status: "cancelado" }));
+  await assertFails(deleteDoc(doc(owner, "orders/paid-order")));
+});
+
 test("proprietário ativo gerencia dados operacionais apenas no próprio tenant", async () => {
   const owner = testEnvironment.authenticatedContext("restaurant-a", {
     email: "owner-a@example.com",
@@ -420,10 +456,16 @@ test("proprietário ativo gerencia dados operacionais apenas no próprio tenant"
     restaurantId: "restaurant-b", type: "saida", category: "Insumos", description: "Externo",
     amount: 50, paymentMethod: "pix", createdAt: Timestamp.now(),
   }));
-  await assertSucceeds(setDoc(doc(owner, "payments/payment-a"), {
+  await assertFails(setDoc(doc(owner, "payments/payment-a"), {
     restaurantId: "restaurant-a", tableId: "restaurant-a_12", tableNumber: 12, method: "pix", amount: 25,
     items: 1, status: "completed", createdAt: Timestamp.now(),
   }));
+  await testEnvironment.withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(), "payments/payment-a"), {
+      restaurantId: "restaurant-a", tableId: "restaurant-a_12", tableNumber: 12, method: "pix", amount: 25,
+      items: 1, status: "completed", createdAt: Timestamp.now(),
+    });
+  });
   await assertFails(updateDoc(doc(owner, "payments/payment-a"), { amount: 1 }));
   await assertFails(deleteDoc(doc(owner, "payments/payment-a")));
   const ownStock = await assertSucceeds(getDocs(query(collection(owner, "stock"), where("restaurantId", "==", "restaurant-a"))));

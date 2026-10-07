@@ -10,7 +10,6 @@ import {
   type DocumentData,
 } from "firebase/firestore";
 import { db } from "../firebase";
-import { DEFAULT_PRODUCTS } from "../data/menuCatalog";
 import type { Product, ProductExtra } from "../types/menu";
 
 function toExtras(value: unknown): ProductExtra[] {
@@ -67,7 +66,7 @@ function toFirestore(product: Product, restaurantId: string) {
 }
 
 export function useMenuCatalog(restaurantId: string) {
-  const [products, setProducts] = useState<Product[]>(DEFAULT_PRODUCTS);
+  const [products, setProducts] = useState<Product[]>([]);
   const [fromRemote, setFromRemote] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -80,8 +79,8 @@ export function useMenuCatalog(restaurantId: string) {
       menuQuery,
       (snapshot) => {
         if (snapshot.empty) {
-          setProducts(DEFAULT_PRODUCTS);
-          setFromRemote(false);
+          setProducts([]);
+          setFromRemote(true);
         } else {
           const nextProducts = snapshot.docs
             .map((item) => convertProduct(item.id, item.data()))
@@ -96,11 +95,11 @@ export function useMenuCatalog(restaurantId: string) {
       },
       (snapshotError) => {
         console.error("Erro ao carregar cardápio:", snapshotError);
-        setProducts(DEFAULT_PRODUCTS);
+        setProducts([]);
         setFromRemote(false);
         setLoading(false);
         setError(
-          "Não foi possível sincronizar o cardápio. Exibindo o cardápio local.",
+          "Não foi possível sincronizar o cardápio.",
         );
       },
     );
