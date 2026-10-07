@@ -54,6 +54,7 @@ beforeEach(async () => {
       setDoc(doc(db, "waiters/waiter-2"), { restaurantId: "restaurant-b", name: "Bruno", role: "Garçom", employeeNumber: "102", email: "bruno@example.com", uid: "auth-bruno", active: true }),
       setDoc(doc(db, "waiters/waiter-inactive"), { restaurantId: "restaurant-a", name: "Caio", role: "Garçom", employeeNumber: "103", email: "caio@example.com", uid: "auth-caio", active: false }),
       setDoc(doc(db, "waiters/waiter-unclaimed"), { restaurantId: "restaurant-a", name: "Dani", role: "Garçonete", employeeNumber: "104", email: "", uid: "", active: true }),
+      setDoc(doc(db, "waiters/waiter-legacy-unclaimed"), { restaurantId: "restaurant-a", name: "Eva", role: "Garçonete", employeeNumber: "105", email: "", active: true }),
       setDoc(doc(db, "waiterTables/restaurant-a_12"), { restaurantId: "restaurant-a", tableNumber: 12, waiterId: "waiter-1" }),
       setDoc(doc(db, "tables/restaurant-a_12"), { restaurantId: "restaurant-a", number: 12, status: "livre" }),
       setDoc(doc(db, "tables/restaurant-b_15"), { restaurantId: "restaurant-b", number: 15, status: "livre" }),
@@ -349,6 +350,12 @@ test("conta verificada pode vincular somente um cadastro ainda não reivindicado
     uid: "auth-other",
     email: "other@example.com",
   }));
+
+  await assertSucceeds(updateDoc(doc(newWaiter, "waiters/waiter-legacy-unclaimed"), {
+    uid: "auth-dani",
+    email: "dani@example.com",
+  }));
+  await assertSucceeds(getDoc(doc(newWaiter, "waiters/waiter-legacy-unclaimed")));
 });
 
 test("token válido da mesa não permite criar pedido diretamente no Firestore", async () => {
