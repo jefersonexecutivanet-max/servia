@@ -2,6 +2,9 @@ import { getApps, initializeApp, cert } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
 import { FieldValue, Timestamp, getFirestore } from "firebase-admin/firestore";
 import { createHash } from "node:crypto";
+import security from "./security.cjs";
+
+const { isRequestOriginAllowed } = security;
 
 class ApiError extends Error {
   constructor(code, message, status) {
@@ -244,7 +247,7 @@ export default async function orderApi(action, request, response) {
 
   const origin = request.headers.origin;
   const allowedOrigins = (process.env.ALLOWED_ORIGINS || "http://localhost:5173").split(",").map((o) => o.trim());
-  if (origin && !allowedOrigins.includes(origin)) {
+  if (!isRequestOriginAllowed(request, origin, allowedOrigins)) {
     return response.status(403).json({ error: { code: "permission-denied", message: "Origem não autorizada." } });
   }
   if (origin) {

@@ -4,6 +4,7 @@ const {
   employeeCodeFromWaiterId,
   hashPin,
   hashRateLimitKey,
+  isRequestOriginAllowed,
   isStaffRole,
   isValidEmployeeCode,
   normalizeEmployeeCode,
@@ -52,4 +53,18 @@ test("rate limit keys are deterministic hashes and do not expose their inputs", 
   assert.equal(first, hashRateLimitKey("employee", "FUNC-ABCDEF1234567890GHIJ"));
   assert.match(first, /^[a-f0-9]{64}$/);
   assert.equal(first.includes("FUNC-"), false);
+});
+
+test("origin validation allows the configured origin and same-host requests only", () => {
+  const request = {
+    headers: {
+      host: "servia.example.com",
+      "x-forwarded-host": "servia.example.com",
+      "x-forwarded-proto": "https",
+    },
+  };
+  assert.equal(isRequestOriginAllowed(request, "https://servia.example.com", []), true);
+  assert.equal(isRequestOriginAllowed(request, "https://admin.example.com", ["https://admin.example.com"]), true);
+  assert.equal(isRequestOriginAllowed(request, "https://attacker.example.com", []), false);
+  assert.equal(isRequestOriginAllowed(request, undefined, []), true);
 });

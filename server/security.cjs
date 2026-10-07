@@ -40,6 +40,23 @@ function hashRateLimitKey(scope, value) {
   return crypto.createHash("sha256").update(`${scope}:${value}`).digest("hex");
 }
 
+function isRequestOriginAllowed(request, origin, allowedOrigins = []) {
+  if (!origin || allowedOrigins.includes(origin)) return true;
+
+  const firstHeaderValue = (value) => (Array.isArray(value) ? value[0] : value)?.split(",")[0]?.trim();
+  const host = firstHeaderValue(request?.headers?.["x-forwarded-host"])
+    || firstHeaderValue(request?.headers?.host);
+  const protocol = firstHeaderValue(request?.headers?.["x-forwarded-proto"])
+    || (request?.socket?.encrypted ? "https" : "http");
+  if (!host || !["http", "https"].includes(protocol)) return false;
+
+  try {
+    return new URL(origin).origin === `${protocol}://${host}`;
+  } catch {
+    return false;
+  }
+}
+
 async function hashPin(pin) {
   const salt = crypto.randomBytes(16).toString("hex");
   const derivedKey = await scryptAsync(pin, salt, SCRYPT_KEY_LENGTH);
@@ -63,6 +80,7 @@ module.exports = {
   employeeCodeFromWaiterId,
   hashPin,
   hashRateLimitKey,
+  isRequestOriginAllowed,
   isStaffRole,
   isValidEmployeeCode,
   normalizeEmployeeCode,

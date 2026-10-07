@@ -1,6 +1,9 @@
 import { getApps, initializeApp, cert } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
 import { FieldValue, getFirestore } from "firebase-admin/firestore";
+import security from "./security.cjs";
+
+const { isRequestOriginAllowed } = security;
 
 class ApiError extends Error {
   constructor(code, message, status) {
@@ -137,7 +140,7 @@ export default async function paymentApi(action, request, response) {
   if (request.method !== "POST") return response.status(405).json({ error: { code: "method-not-allowed", message: "Método não permitido." } });
   const origin = request.headers.origin;
   const allowedOrigins = (process.env.ALLOWED_ORIGINS || "http://localhost:5173").split(",").map((o) => o.trim()).filter(Boolean);
-  if (origin && !allowedOrigins.includes(origin)) return response.status(403).json({ error: { code: "permission-denied", message: "Origem não autorizada." } });
+  if (!isRequestOriginAllowed(request, origin, allowedOrigins)) return response.status(403).json({ error: { code: "permission-denied", message: "Origem não autorizada." } });
   if (origin) { response.setHeader("Access-Control-Allow-Origin", origin); response.setHeader("Vary", "Origin"); }
   response.setHeader("Access-Control-Allow-Headers", "Authorization, Content-Type");
   response.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");

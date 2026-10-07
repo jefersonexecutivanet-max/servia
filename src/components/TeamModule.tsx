@@ -193,7 +193,7 @@ export default function TeamModule({ readOnly = false }: { readOnly?: boolean })
         errorCode === "functions/internal" || errorCode === "functions/unavailable"
           ? "Não foi possível conectar à função de cadastro. Publique as Cloud Functions no projeto Firebase usado pelo Vercel e confira o CORS."
           : errorCode === "configuration"
-          ? "Não foi possível conectar ao servidor de cadastro por PIN. Confira as variáveis do Vercel."
+          ? "Cadastro indisponível. Configure FIREBASE_SERVICE_ACCOUNT_JSON nas variáveis de ambiente do Vercel."
           : saveError instanceof Error ? saveError.message : "Não foi possível salvar o cadastro."
       );
     } finally {

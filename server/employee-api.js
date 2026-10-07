@@ -7,6 +7,7 @@ const {
   employeeCodeFromWaiterId,
   hashPin,
   hashRateLimitKey,
+  isRequestOriginAllowed,
   isStaffRole,
   isValidEmployeeCode,
   normalizeEmployeeCode,
@@ -360,7 +361,7 @@ export default async function employeeApi(action, request, response) {
 
   const origin = request.headers.origin;
   const allowedOrigins = (process.env.ALLOWED_ORIGINS || "http://localhost:5173").split(",").map((o) => o.trim());
-  if (origin && !allowedOrigins.includes(origin)) {
+  if (!isRequestOriginAllowed(request, origin, allowedOrigins)) {
     return response.status(403).json({ error: { code: "permission-denied", message: "Origem não autorizada." } });
   }
   if (origin) {

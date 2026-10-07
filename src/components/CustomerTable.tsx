@@ -110,7 +110,16 @@ useEffect(() => {
         }
       } catch (error) {
         console.error("Não foi possível iniciar a sessão do cliente:", error);
-        showMessage("Não foi possível iniciar sua sessão. Tente atualizar a página.");
+        const code = typeof error === "object" && error && "code" in error
+          ? String((error as { code: string }).code)
+          : "";
+        if (code === "auth/operation-not-allowed") {
+          showMessage("O acesso anônimo está desativado no Firebase. Ative o provedor Anônimo para permitir pedidos pelo QR.");
+        } else if (code === "auth/network-request-failed") {
+          showMessage("Não foi possível conectar ao Firebase. Verifique sua conexão e tente novamente.");
+        } else {
+          showMessage("Não foi possível iniciar sua sessão. Tente atualizar a página.");
+        }
       }
     });
     return unsubscribe;
