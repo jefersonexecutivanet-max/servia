@@ -100,6 +100,21 @@ export default function TablesModule() {
   const [draggingTable, setDraggingTable] = useState<number | null>(null);
   const [availableRestaurants, setAvailableRestaurants] = useState<Array<{ id: string; name: string }>>([]);
   const [showRestaurantDropdown, setShowRestaurantDropdown] = useState(false);
+  const [paymentSettings, setPaymentSettings] = useState<{ serviceFee: number }>({ serviceFee: 10 });
+
+  useEffect(() => {
+    if (!restaurantId) return;
+    return onSnapshot(
+      doc(db, "restaurants", restaurantId),
+      (snapshot) => {
+        const data = snapshot.data();
+        if (data?.payment) {
+          setPaymentSettings((prev) => ({ ...prev, ...data.payment }));
+        }
+      },
+      (error) => console.error("Erro ao carregar configurações de pagamento:", error),
+    );
+  }, [restaurantId]);
 
   useEffect(() => {
     setTables([]);
@@ -203,7 +218,7 @@ export default function TablesModule() {
       : selectedTable.total
     : 0;
 
-  const serviceFee = billSubtotal * 0.1;
+  const serviceFee = billSubtotal * (paymentSettings.serviceFee / 100);
   const closingTotal =
     billSubtotal + serviceFee;
 
@@ -479,9 +494,10 @@ export default function TablesModule() {
         if (!tableSnapshot.exists()) throw new Error("Table no longer exists");
         const activeOrders = orderSnapshots.filter((item) => item.exists() && item.data()!.status !== "cancelado" && item.data()!.paymentStatus !== "paid");
         const items = activeOrders.flatMap((item) => Array.isArray(item.data()!.items) ? item.data()!.items : []);
-        const subtotal = calculateOrderTotal(items);
+const subtotal = calculateOrderTotal(items);
         if (subtotal <= 0) throw new Error("No unpaid items remain on this table");
-        const amount = subtotal * 1.1;
+        const serviceFeePercent = paymentSettings.serviceFee / 100;
+        const amount = subtotal * (1 + serviceFeePercent);
         transaction.set(paymentRef, { restaurantId, tableId, tableNumber, method: paymentMethod, amount, items: items.reduce((sum, item) => sum + (Number(item.quantity) || 0), 0), status: "completed", createdAt: serverTimestamp() });
         activeOrders.forEach((item) => transaction.update(doc(db, "orders", item.id), { paymentStatus: "paid", paymentId: paymentRef.id, paidAt: serverTimestamp() }));
         transaction.update(tableRef, { status: "livre", guests: 0, total: 0, customer: deleteField() });
@@ -1388,7 +1404,7 @@ export default function TablesModule() {
 
               <div>
                 <span>
-                  Taxa de serviço · 10%
+                  Taxa de serviço · {paymentSettings.serviceFee}%
                 </span>
 
                 <strong>

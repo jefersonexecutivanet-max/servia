@@ -83,7 +83,7 @@ export default function CustomerTable({
     localStorage.getItem(waiterStorageKey) || "",
   );
   const [selectedWaiterId, setSelectedWaiterId] = useState(assignedWaiterId);
-  const [customerUid, setCustomerUid] = useState("");
+  const [customerUid, setCustomerUid] = useState<string | null>(null);
   const [pendingCall, setPendingCall] = useState(false);
   const [openOrders, setOpenOrders] = useState<Array<{ id: string; status: string; paymentStatus?: string; items: Array<{ productId: string; name: string; quantity: number; price: number }> }>>([]);
 
@@ -99,11 +99,13 @@ export default function CustomerTable({
     return ["Todos", "Destaques", ...unique];
   }, [products]);
 
-  useEffect(() => {
+useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       try {
         const customer = user?.isAnonymous ? user : (await signInAnonymously(auth)).user;
-        setCustomerUid(customer.uid);
+        if (customer?.uid) {
+          setCustomerUid(customer.uid);
+        }
       } catch (error) {
         console.error("Não foi possível iniciar a sessão do cliente:", error);
         showMessage("Não foi possível iniciar sua sessão. Tente atualizar a página.");
@@ -344,9 +346,10 @@ export default function CustomerTable({
     setActionLoading(requestType);
     setMessage("");
 
-    try {
+try {
       const batch = writeBatch(db);
       const requestRef = doc(db, requestCollection, `${tableDocId(restaurantId, tableNumber)}_${requestType}`);
+      if (!customerUid) throw new Error("Sessão do cliente não inicializada.");
       batch.set(requestRef, {
         restaurantId,
         tableId: `${tableDocId(restaurantId, tableNumber)}`,

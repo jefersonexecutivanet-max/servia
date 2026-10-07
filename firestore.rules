@@ -56,8 +56,7 @@ service cloud.firestore {
 
     function isStaffRoleForRestaurant(restaurantId, expectedRole) {
       let staffPath = /databases/$(database)/documents/restaurantStaff/$(request.auth.uid);
-      let waiterPath = /databases/$(database)/documents/waiters/$(get(staffPath).data.waiterId);
-      let role = ('role' in get(staffPath).data) ? get(staffPath).data.role : get(waiterPath).data.role;
+      let role = get(staffPath).data.role;
       return signedIn()
         && exists(staffPath)
         && get(staffPath).data.active == true
@@ -362,8 +361,11 @@ service cloud.firestore {
     }
 
     match /waiterDirectory/{waiterId} {
-      allow get: if isOwner() || (signedIn() && resource.data.active == true
-        && resource.data.keys().hasOnly(['restaurantId', 'name', 'role', 'active']));
+      allow get: if isOwner() || (
+        signedIn() && resource.data.active == true
+        && resource.data.keys().hasOnly(['restaurantId', 'name', 'role', 'active'])
+        && isActiveTeamMemberForRestaurant(resource.data.restaurantId)
+      );
       allow list: if isOwner();
       allow create: if isOwner() || canManageEmployees(request.resource.data.restaurantId);
       allow update: if isOwner() || (
@@ -375,6 +377,7 @@ service cloud.firestore {
 
     match /waiterDirectory/{restaurantId}/staff/{waiterId} {
       allow get, list: if signedIn() && restaurantIsActive(restaurantId)
+        && isActiveTeamMemberForRestaurant(restaurantId)
         && resource.data.restaurantId == restaurantId
         && resource.data.active == true
         && resource.data.keys().hasOnly(['restaurantId', 'name', 'role', 'active']);

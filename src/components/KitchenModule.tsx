@@ -89,13 +89,15 @@ export default function KitchenModule() {
         // Move each new order into preparation as soon as it reaches the kitchen.
         nextOrders.forEach((order) => {
           if (order.status === "novo" && !preparingOrdersRef.current.has(order.id)) {
-            preparingOrdersRef.current.add(order.id);
-            void updateDoc(doc(db, "orders", order.id), {
+            updateDoc(doc(db, "orders", order.id), {
               status: "preparando",
-            }).catch((updateError) => {
-              preparingOrdersRef.current.delete(order.id);
-              console.error("Erro ao iniciar o preparo automaticamente:", updateError);
-            });
+            })
+              .then(() => {
+                preparingOrdersRef.current.add(order.id);
+              })
+              .catch((updateError) => {
+                console.error("Erro ao iniciar o preparo automaticamente:", updateError);
+              });
           }
         });
 

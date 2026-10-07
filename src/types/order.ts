@@ -11,15 +11,19 @@ export type OrderItem = {
 
 export type Order = {
   id: string;
+  restaurantId: string;
+  tableId: string;
   tableNumber: number;
+  waiterId: string;
   status: OrderStatus;
   source?: string;
   items: OrderItem[];
   total: number;
   createdAt?: Date;
-  paymentStatus?: "paid" | "unpaid";
-  paymentId?: string;
-  paidAt?: Date;
   printedAt?: Date;
   printedBy?: string;
+  paymentStatus?: "paid" | "pending" | "unpaid";
+  paymentId?: string;
+  paidAt?: Date;
+  customerUid: string;
 };

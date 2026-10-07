@@ -1,13 +1,4 @@
-import type { Order } from "../types/order";
-
-export interface OrderItem {
-  productId: string;
-  name: string;
-  quantity: number;
-  price: number;
-  extras?: string[];
-  notes?: string;
-}
+import type { Order, OrderItem } from "../types/order";
 
 /**
  * Recalcula o total de um pedido a partir dos itens
