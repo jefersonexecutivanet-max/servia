@@ -5,7 +5,9 @@ import {
   CheckCheck,
   Clock3,
   LoaderCircle,
+  Plus,
   ReceiptText,
+  Trash2,
   UserRoundCheck,
 } from "lucide-react";
 import {
@@ -30,6 +32,8 @@ import { db } from "../firebase";
 import type { Table, TableStatus } from "../types/table";
 import { formatCurrency } from "../utils/format";
 import { calculateOrderTotal } from "../utils/orders";
+import { orderApi } from "../utils/employeeApi";
+import { useMenuCatalog } from "../hooks/useMenuCatalog";
 import { useRestaurantScope } from "../contexts/RestaurantContext";
 import TableTurnoverModule from "./TableTurnoverModule";
 
@@ -63,6 +67,8 @@ type AssignedTable = {
   id: string;
   tableNumber: number;
 };
+
+type ManualOrderItem = { productId: string; quantity: number; extras: string[]; notes: string };
 
 const waiterMapPositions = [
   { left: "10%", top: "23%" },
@@ -146,6 +152,7 @@ export default function WaiterModule({
   showTurnover?: boolean;
 }) {
   const { restaurantId } = useRestaurantScope();
+  const { products: menuProducts, loading: menuLoading } = useMenuCatalog(restaurantId || "__no_restaurant_selected__", db);
   const [tableCalls, setTableCalls] = useState<ServiceRequest[]>([]);
   const [billRequests, setBillRequests] = useState<ServiceRequest[]>([]);
   const [filter, setFilter] = useState<RequestFilter>("open");
@@ -166,6 +173,11 @@ export default function WaiterModule({
   const audioContextRef = useRef<AudioContext | null>(null);
   const [alertsEnabled, setAlertsEnabled] = useState(false);
   const [newAlert, setNewAlert] = useState("");
+  const [quickOrderTable, setQuickOrderTable] = useState<number | null>(null);
+  const [manualItems, setManualItems] = useState<ManualOrderItem[]>([]);
+  const [manualProductId, setManualProductId] = useState("");
+  const [manualOrderBusy, setManualOrderBusy] = useState(false);
+  const manualOrderRetryRef = useRef<{ fingerprint: string; key: string } | null>(null);
 
   // Função para tocar som de notificação
   async function enableAlerts() {
@@ -576,9 +588,46 @@ export default function WaiterModule({
     }
   }
 
+  function addManualOrderItem() {
+    if (!manualProductId) return;
+    const product = menuProducts.find((item) => item.id === manualProductId && item.available);
+    if (!product) { setError("Selecione um produto disponível."); return; }
+    setManualItems((items) => [...items, { productId: product.id, quantity: 1, extras: [], notes: "" }]);
+    setManualProductId("");
+    manualOrderRetryRef.current = null;
+  }
+
+  async function submitManualOrder(tableNumber: number) {
+    if (!restaurantId || !waiterId || manualItems.length === 0 || manualOrderBusy) return;
+    const items = manualItems.map((item) => ({ ...item, extras: [...item.extras].sort() }));
+    const fingerprint = JSON.stringify({ restaurantId, tableNumber, items });
+    if (!manualOrderRetryRef.current || manualOrderRetryRef.current.fingerprint !== fingerprint) {
+      manualOrderRetryRef.current = { fingerprint, key: crypto.randomUUID() };
+    }
+    setManualOrderBusy(true);
+    setError("");
+    try {
+      await orderApi("manual", {
+        restaurantId,
+        tableId: `${restaurantId}_${tableNumber}`,
+        tableNumber,
+        items,
+        idempotencyKey: manualOrderRetryRef.current.key,
+      });
+      setManualItems([]);
+      setQuickOrderTable(null);
+      manualOrderRetryRef.current = null;
+      setNewAlert(`Pedido da mesa ${tableNumber} enviado para a cozinha.`);
+      window.setTimeout(() => setNewAlert(""), 3500);
+    } catch (orderError) {
+      console.error("Erro ao enviar pedido manual para a cozinha:", orderError);
+      setError(orderError instanceof Error ? orderError.message : "Não foi possível enviar o pedido à cozinha.");
+    } finally { setManualOrderBusy(false); }
+  }
+
   async function advanceRequest(request: ServiceRequest) {
-    const nextStatus =
-      request.status === "pending" ? "in_progress" : "completed";
+    if (request.status !== "pending") return;
+    const nextStatus = "in_progress";
     const documentKey = `${request.collectionName}/${request.id}`;
 
     setUpdatingId(documentKey);
@@ -587,9 +636,6 @@ export default function WaiterModule({
       batch.update(doc(db, request.collectionName, request.id), {
         status: nextStatus,
         attendedBy: user.displayName || user.email || "Equipe",
-        ...(nextStatus === "completed"
-          ? { completedAt: serverTimestamp() }
-          : {}),
       });
       if (nextStatus === "in_progress") {
         batch.set(doc(db, "waiterTables", `${restaurantId}_${request.tableNumber}`), {
@@ -712,6 +758,44 @@ export default function WaiterModule({
                       </ul>
                       <span>Total: {formatCurrency(tableOrders.reduce((sum, order) => sum + order.total, 0))}</span>
                     </>
+                  )}
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    onClick={() => {
+                      setManualItems([]);
+                      setError("");
+                      manualOrderRetryRef.current = null;
+                      setQuickOrderTable(quickOrderTable === table.tableNumber ? null : table.tableNumber);
+                    }}
+                  >
+                    <Plus size={17} /> Lançar pedido
+                  </button>
+                  {quickOrderTable === table.tableNumber && (
+                    <div className="waiter-manual-order">
+                      <div className="form-group">
+                        <label>Produto</label>
+                        <select value={manualProductId} onChange={(event) => setManualProductId(event.target.value)} disabled={menuLoading}>
+                          <option value="">{menuLoading ? "Carregando cardápio..." : "Selecione um produto"}</option>
+                          {menuProducts.filter((product) => product.available).map((product) => <option key={product.id} value={product.id}>{product.name} · {formatCurrency(product.price)}</option>)}
+                        </select>
+                      </div>
+                      <button className="secondary-button" type="button" disabled={!manualProductId} onClick={addManualOrderItem}><Plus size={16} />Adicionar item</button>
+                      {manualItems.map((item, index) => {
+                        const product = menuProducts.find((entry) => entry.id === item.productId);
+                        if (!product) return null;
+                        return (
+                          <div className="waiter-manual-order-item" key={`${item.productId}-${index}`}>
+                            <strong>{product.name} · {formatCurrency(product.price)}</strong>
+                            <div className="form-group"><label>Quantidade</label><input type="number" min="1" max="99" step="1" value={item.quantity} onChange={(event) => setManualItems((rows) => rows.map((row, rowIndex) => rowIndex === index ? { ...row, quantity: Number(event.target.value) } : row))} /></div>
+                            {product.extras.length > 0 && <div className="form-group"><label>Adicionais</label><select multiple value={item.extras} onChange={(event) => setManualItems((rows) => rows.map((row, rowIndex) => rowIndex === index ? { ...row, extras: Array.from(event.target.selectedOptions, (option) => option.value) } : row))}>{product.extras.map((extra) => <option key={extra.id} value={extra.id}>{extra.name} · {formatCurrency(extra.price)}</option>)}</select></div>}
+                            <div className="form-group"><label>Observação</label><input maxLength={500} value={item.notes} onChange={(event) => setManualItems((rows) => rows.map((row, rowIndex) => rowIndex === index ? { ...row, notes: event.target.value } : row))} placeholder="Ex.: sem cebola" /></div>
+                            <button className="icon-button" type="button" aria-label={`Remover ${product.name}`} onClick={() => { setManualItems((rows) => rows.filter((_, rowIndex) => rowIndex !== index)); manualOrderRetryRef.current = null; }}><Trash2 size={16} /></button>
+                          </div>
+                        );
+                      })}
+                      {manualItems.length > 0 && <div className="modal-actions"><button className="secondary-button" type="button" onClick={() => { setManualItems([]); setQuickOrderTable(null); manualOrderRetryRef.current = null; }}>Cancelar</button><button className="primary-button" type="button" disabled={manualOrderBusy} onClick={() => void submitManualOrder(table.tableNumber)}>{manualOrderBusy ? "Enviando..." : "Enviar para cozinha"}</button></div>}
+                    </div>
                   )}
                 </article>
               );
@@ -864,7 +948,7 @@ export default function WaiterModule({
                 <button
                   className={`waiter-action ${isCompleted ? "done" : ""}`}
                   type="button"
-                  disabled={Boolean(updatingId) || isCompleted}
+                  disabled={Boolean(updatingId) || isCompleted || isInProgress}
                   onClick={() => void advanceRequest(request)}
                 >
                   {updatingId === documentKey ? (
@@ -872,7 +956,7 @@ export default function WaiterModule({
                   ) : isCompleted ? (
                     <Check size={17} />
                   ) : isInProgress ? (
-                    <Check size={17} />
+                    <Clock3 size={17} />
                   ) : (
                     <UserRoundCheck size={17} />
                   )}
@@ -880,7 +964,7 @@ export default function WaiterModule({
                     {isCompleted
                       ? "Concluído"
                       : isInProgress
-                        ? "Concluir"
+                        ? "Aguardando Caixa"
                         : "Assumir"}
                   </span>
                 </button>

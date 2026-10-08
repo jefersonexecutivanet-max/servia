@@ -1,4 +1,5 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { collection, onSnapshot, query, where } from "firebase/firestore";
 import {
   BookOpen,
   CheckCircle2,
@@ -11,9 +12,10 @@ import {
 } from "lucide-react";
 import { MENU_CATEGORIES } from "../data/menuCatalog";
 import { useMenuCatalog } from "../hooks/useMenuCatalog";
-import type { Product, ProductExtra } from "../types/menu";
+import type { Product, ProductExtra, ProductRecipeItem } from "../types/menu";
 import { formatCurrency } from "../utils/format";
 import { useRestaurantScope } from "../contexts/RestaurantContext";
+import { db } from "../firebase";
 
 function createEmptyProduct(): Product {
   return {
@@ -27,6 +29,7 @@ function createEmptyProduct(): Product {
     featured: false,
     extras: [],
     notesEnabled: true,
+    recipe: [],
   };
 }
 
@@ -46,6 +49,15 @@ export default function MenuModule() {
   const [editing, setEditing] = useState<Product | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const [stockItems, setStockItems] = useState<Array<{ id: string; name: string; unit: string }>>([]);
+
+  useEffect(() => {
+    setStockItems([]);
+    if (!restaurantId) return;
+    return onSnapshot(query(collection(db, "stock"), where("restaurantId", "==", restaurantId)), (snapshot) => {
+      setStockItems(snapshot.docs.map((item) => ({ id: item.id, name: String(item.data().name || "Ingrediente"), unit: String(item.data().unit || "un") })));
+    }, (loadError) => console.error("Erro ao carregar ingredientes do estoque:", loadError));
+  }, [restaurantId]);
 
   const categories = useMemo(
     () => ["Todos", ...MENU_CATEGORIES],
@@ -311,6 +323,7 @@ export default function MenuModule() {
       {editing && (
         <ProductFormModal
           product={editing}
+          stockItems={stockItems}
           busy={busy}
           onClose={() => setEditing(null)}
           onSave={handleSave}
@@ -322,11 +335,13 @@ export default function MenuModule() {
 
 function ProductFormModal({
   product,
+  stockItems,
   busy,
   onClose,
   onSave,
 }: {
   product: Product;
+  stockItems: Array<{ id: string; name: string; unit: string }>;
   busy: boolean;
   onClose: () => void;
   onSave: (product: Product) => void;
@@ -334,6 +349,8 @@ function ProductFormModal({
   const [form, setForm] = useState<Product>(product);
   const [extraName, setExtraName] = useState("");
   const [extraPrice, setExtraPrice] = useState("");
+  const [recipeStockId, setRecipeStockId] = useState("");
+  const [recipeQuantity, setRecipeQuantity] = useState("");
 
   function addExtra() {
     if (!extraName.trim()) {
@@ -360,6 +377,17 @@ function ProductFormModal({
       ...current,
       extras: current.extras.filter((extra) => extra.id !== extraId),
     }));
+  }
+
+  function addRecipeItem() {
+    const quantity = Number(recipeQuantity);
+    if (!recipeStockId || !Number.isFinite(quantity) || quantity <= 0) return;
+    setForm((current) => ({ ...current, recipe: [...(current.recipe || []), { stockId: recipeStockId, quantity }] }));
+    setRecipeQuantity("");
+  }
+
+  function removeRecipeItem(stockId: string) {
+    setForm((current) => ({ ...current, recipe: (current.recipe || []).filter((item) => item.stockId !== stockId) }));
   }
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -531,6 +559,28 @@ function ProductFormModal({
           </div>
 
           <div className="menu-extras-editor">
+            <span>Ficha técnica · quantidade por unidade</span>
+
+            {(form.recipe || []).map((ingredient: ProductRecipeItem) => {
+              const stockItem = stockItems.find((item) => item.id === ingredient.stockId);
+              return <div className="menu-extra-row" key={ingredient.stockId}>
+                <strong>{stockItem?.name || "Ingrediente indisponível"}</strong>
+                <span>{ingredient.quantity} {stockItem?.unit || "un"}</span>
+                <button type="button" onClick={() => removeRecipeItem(ingredient.stockId)}>Remover</button>
+              </div>;
+            })}
+
+            <div className="menu-extra-inputs">
+              <select aria-label="Ingrediente da ficha técnica" value={recipeStockId} onChange={(event) => setRecipeStockId(event.target.value)}>
+                <option value="">Selecionar ingrediente</option>
+                {stockItems.filter((item) => !(form.recipe || []).some((recipe) => recipe.stockId === item.id)).map((item) => <option key={item.id} value={item.id}>{item.name} · {item.unit}</option>)}
+              </select>
+              <input type="number" min="0.001" step="0.001" placeholder="Quantidade" value={recipeQuantity} onChange={(event) => setRecipeQuantity(event.target.value)} />
+              <button type="button" onClick={addRecipeItem} disabled={!recipeStockId || !recipeQuantity}>Adicionar</button>
+            </div>
+          </div>
+
+          <div className="menu-extras-editor">
             <span>Adicionais</span>
 
             {form.extras.map((extra) => (
@@ -566,6 +616,8 @@ function ProductFormModal({
               </button>
             </div>
           </div>
+
+
 
           <div className="modal-actions">
             <button

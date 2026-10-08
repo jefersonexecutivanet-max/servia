@@ -37,7 +37,7 @@ Veja `.env.example`. App Check fica desligado por padrão. `VITE_CALL_ESCALATION
 
 As alterações de schema são aditivas e mantêm leitura de dados antigos. finho60 é o proprietário do sistema e libera/cadastra restaurantes. A conta do restaurante é identificada separadamente pelo UID corresponder ao ID do restaurante e pelo campo `ownerEmail`; o restaurante autorizado administrado por jeferson tem acesso total apenas aos próprios dados e funcionários. Antes de aplicar as regras, faça backup e migre o diretório público de garçons. Tokens de mesa devem ser tratados como segredos: rotacione-os se um QR for exposto.
 
-O token `VERCEL_OIDC_TOKEN` incluído no arquivo ZIP precisa ser invalidado no provedor. Para limpar o histórico Git, faça backup e execute, após instalar `git-filter-repo`, `git filter-repo --path VERCEL_OIDC_TOKEN --invert-paths`; isso reescreve commits e exige coordenar o novo push com colaboradores.
+Revogue e substitua qualquer credencial que tenha sido incluída em pacotes distribuídos. A verificação do histórico do repositório não encontrou valores de credenciais nos padrões de tokens e chaves privadas verificados. Se uma credencial real for identificada, revogue-a no provedor antes de removê-la do histórico.
 
 
 ## Employee PIN access

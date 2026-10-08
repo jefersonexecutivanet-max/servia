@@ -8,7 +8,7 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "test:rules": "node --test tests/firestore-rules.test.mjs",
-    "test:unit": "vitest run tests/unit.test.ts",
+    "test:unit": "vitest run tests/unit.test.ts tests/cash-logic.test.mjs",
     "migrate:waiter-directory": "node scripts/migrate-waiter-directory.mjs",
     "preview": "vite preview"
   },

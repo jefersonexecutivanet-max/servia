@@ -33,6 +33,7 @@ import { calculateOrderTotal } from "../utils/orders";
 import { paymentApi } from "../utils/employeeApi";
 
 const initialTables: Table[] = [];
+type CancelableOrderItem = { orderId: string; lineIndex: number; name: string; quantity: number; productId: string; price: number; extras: string[]; notes: string };
 
 const tablePositions = [
   { left: "10%", top: "23%" },
@@ -65,7 +66,7 @@ function getTableUrl(restaurantId: string, table: Table) {
   return url.toString();
 }
 
-export default function TablesModule() {
+export default function TablesModule({ canCloseAccounts = false }: { canCloseAccounts?: boolean }) {
   const { restaurantId, systemAdmin, setRestaurantId } = useRestaurantScope();
   const [tables, setTables] =
     useState<Table[]>(initialTables);
@@ -94,6 +95,17 @@ export default function TablesModule() {
 
   const [paymentMethod, setPaymentMethod] =
     useState("pix");
+  const [selectedOrderIds, setSelectedOrderIds] = useState<string[] | null>(null);
+  const [selectedItemQuantities, setSelectedItemQuantities] = useState<Record<string, number>>({});
+  const [paymentIdempotencyKey, setPaymentIdempotencyKey] = useState("");
+  const [transferDestination, setTransferDestination] = useState("");
+  const [transferringOrders, setTransferringOrders] = useState(false);
+  const [cancellationTarget, setCancellationTarget] = useState<CancelableOrderItem | null>(null);
+  const [cancellationQuantity, setCancellationQuantity] = useState("1");
+  const [cancellationReason, setCancellationReason] = useState("");
+  const [supervisorCode, setSupervisorCode] = useState("");
+  const [supervisorPin, setSupervisorPin] = useState("");
+  const [cancellingItem, setCancellingItem] = useState(false);
 
   const [copied, setCopied] =
     useState(false);
@@ -199,8 +211,19 @@ export default function TablesModule() {
   );
 
   const selectedTableOrders = unpaidOrders.filter((order) => order.tableNumber === selectedTable?.number);
+  const closingOrders = selectedOrderIds === null
+    ? selectedTableOrders
+    : selectedTableOrders.filter((order) => selectedOrderIds.includes(order.id));
+  const selectedLinePayments = closingOrders.flatMap((order) => (Array.isArray(order.items) ? order.items : []).map((item: any, lineIndex: number) => {
+    const available = Math.max(0, Number(item.quantity || 0) - Number(order.paidQuantities?.[String(lineIndex)] || 0) - Number(item.cancelledQuantity || 0));
+    const quantity = selectedItemQuantities[`${order.id}:${lineIndex}`] ?? available;
+    return { orderId: order.id, lineIndex, quantity, available, item };
+  })).filter((line) => line.quantity > 0);
+  const closingSubtotal = selectedLinePayments.reduce((sum, line) => sum + (Number(line.item.price) || 0) * line.quantity, 0);
+  const closingFee = closingSubtotal * (paymentSettings.serviceFee / 100);
+  const closingAmount = closingSubtotal + closingFee;
   const selectedItems = selectedTableOrders.flatMap((order) => Array.isArray(order.items)
-    ? order.items.map((item: any) => ({ name: String(item.name || "Produto"), quantity: Number(item.quantity) || 0, price: Number(item.price) || 0 }))
+    ? order.items.map((item: any, lineIndex: number) => ({ orderId: order.id, lineIndex, name: String(item.name || "Produto"), quantity: Number(item.quantity) || 0, price: Number(item.price) || 0, productId: String(item.productId || ""), extras: Array.isArray(item.extras) ? item.extras.map(String) : [], notes: String(item.notes || "") }))
     : []);
 
   const itemsTotal = useMemo(
@@ -218,10 +241,6 @@ export default function TablesModule() {
       ? itemsTotal
       : selectedTable.total
     : 0;
-
-  const serviceFee = billSubtotal * (paymentSettings.serviceFee / 100);
-  const closingTotal =
-    billSubtotal + serviceFee;
 
   function selectTable(table: Table) {
     setSelectedTable(table);
@@ -290,6 +309,9 @@ export default function TablesModule() {
     }
 
     setSelectedTable(table);
+    setSelectedOrderIds(null);
+    setSelectedItemQuantities({});
+    setPaymentIdempotencyKey(crypto.randomUUID());
     setShowClose(true);
     setShowQR(false);
     setShowTap(false);
@@ -302,6 +324,8 @@ export default function TablesModule() {
     setShowTableForm(false);
     setShowDeleteConfirm(false);
     setCopied(false);
+    setCancellationTarget(null);
+    setSupervisorPin("");
   }
 
   function openCreateTable() {
@@ -480,12 +504,19 @@ export default function TablesModule() {
 
   async function confirmCloseTable() {
     if (!selectedTable || !restaurantId) return;
+    if (closingOrders.length === 0 || selectedLinePayments.length === 0) {
+      window.alert("Selecione ao menos um item para receber.");
+      return;
+    }
     const tableNumber = selectedTable.number;
     let committed = false;
     try {
       const finalized = await paymentApi<{ items: any[]; amount: number; serviceFee: number; waiterName: string }>("close", {
         restaurantId,
         tableNumber,
+        orderIds: closingOrders.map((order) => order.id),
+        itemSelections: selectedLinePayments.map(({ orderId, lineIndex, quantity }) => ({ orderId, lineIndex, quantity })),
+        idempotencyKey: paymentIdempotencyKey,
         paymentMethod,
       });
       committed = true;
@@ -508,6 +539,60 @@ export default function TablesModule() {
       console.error("Erro ao fechar mesa:", closeError);
       window.alert(committed ? "Fechamento registrado, mas não foi possível imprimir a conta." : "Não foi possível fechar esta mesa.");
     }
+  }
+
+  async function transferSelectedOrders() {
+    if (!selectedTable || !restaurantId || closingOrders.length === 0) return;
+    const destinationNumber = Number(transferDestination);
+    if (!Number.isInteger(destinationNumber) || destinationNumber < 1) {
+      window.alert("Selecione a mesa de destino.");
+      return;
+    }
+    if (!window.confirm(`Transferir ${closingOrders.length} pedido(s) da mesa ${selectedTable.number} para a mesa ${destinationNumber}?`)) return;
+    setTransferringOrders(true);
+    try {
+      const result = await paymentApi<{ moved: number; remaining: number }>("transfer", {
+        restaurantId,
+        sourceTableNumber: selectedTable.number,
+        destinationTableNumber: destinationNumber,
+        orderIds: closingOrders.map((order) => order.id),
+      });
+      window.alert(`${result.moved} pedido(s) transferido(s).`);
+      setTransferDestination("");
+      closeAllModals();
+      setSelectedTable(null);
+    } catch (error) {
+      console.error("Erro ao transferir pedidos:", error);
+      window.alert(error instanceof Error ? error.message : "Não foi possível transferir a conta.");
+    } finally {
+      setTransferringOrders(false);
+    }
+  }
+
+  function cancelSelectedItem(item: CancelableOrderItem) {
+    setCancellationTarget(item);
+    setCancellationQuantity(String(item.quantity));
+    setCancellationReason("");
+    setSupervisorCode("");
+    setSupervisorPin("");
+  }
+
+  async function submitItemCancellation() {
+    if (!restaurantId || !cancellationTarget) return;
+    if (cancellationReason.trim().length < 4 || !supervisorCode.trim() || !/^\d{6,8}$/.test(supervisorPin)) {
+      window.alert("Informe o motivo e o código/PIN válidos de um gerente ativo.");
+      return;
+    }
+    setCancellingItem(true);
+    try {
+      await paymentApi("cancel-item", { restaurantId, orderId: cancellationTarget.orderId, lineIndex: cancellationTarget.lineIndex, quantity: Number(cancellationQuantity), reason: cancellationReason.trim(), supervisorCode, supervisorPin, expectedProductId: cancellationTarget.productId, expectedName: cancellationTarget.name, expectedPrice: cancellationTarget.price, expectedExtras: cancellationTarget.extras, expectedNotes: cancellationTarget.notes, idempotencyKey: crypto.randomUUID() });
+      window.alert("Cancelamento registrado com autorização e auditoria.");
+      setCancellationTarget(null);
+      setSupervisorPin("");
+    } catch (error) {
+      console.error("Erro ao cancelar item:", error);
+      window.alert(error instanceof Error ? error.message : "Não foi possível cancelar o item.");
+    } finally { setCancellingItem(false); }
   }
 
   function openFirstFreeQR() {
@@ -961,6 +1046,9 @@ export default function TablesModule() {
                                     item.price,
                                 )}
                               </strong>
+                              {canCloseAccounts && <button className="secondary-button" type="button" onClick={() => void cancelSelectedItem(item)}>
+                                Cancelar item
+                              </button>}
                             </div>
                           ),
                         )
@@ -1024,6 +1112,7 @@ export default function TablesModule() {
                       </span>
                     </button>
 
+{canCloseAccounts && (
                     <button
                       className="table-action"
                       type="button"
@@ -1040,6 +1129,7 @@ export default function TablesModule() {
                         Fechar mesa
                       </span>
                     </button>
+                    )}
                   </div>
                 </>
               ) : (
@@ -1382,13 +1472,58 @@ export default function TablesModule() {
               </p>
             </div>
 
-            <div className="closing-summary">
+      <div className="bill-section">
+        <div className="bill-section-title"><span>Pedidos desta conta</span><span>Selecione o que será recebido agora</span></div>
+        <div className="bill-items">
+          {selectedTableOrders.map((order) => {
+            const total = (Array.isArray(order.items) ? order.items : []).reduce((sum: number, item: any, lineIndex: number) => {
+              const openQuantity = Math.max(0, Number(item.quantity || 0) - Number(order.paidQuantities?.[String(lineIndex)] || 0) - Number(item.cancelledQuantity || 0));
+              return sum + (Number(item.price) || 0) * openQuantity;
+            }, 0);
+            const checked = selectedOrderIds === null || selectedOrderIds.includes(order.id);
+            return <div key={order.id}>
+              <label className="bill-item" style={{ cursor: "pointer" }}>
+                <input type="checkbox" checked={checked} onChange={(event) => setSelectedOrderIds((current) => {
+                  const base = current === null ? selectedTableOrders.map((entry) => entry.id) : current;
+                  return event.target.checked ? [...new Set([...base, order.id])] : base.filter((id) => id !== order.id);
+                })} />
+                <span>Comanda · {new Date(order.createdAt?.toDate?.() || order.createdAt || Date.now()).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</span>
+                <strong>{formatCurrency(total)}</strong>
+              </label>
+              {(Array.isArray(order.items) ? order.items : []).map((item: any, lineIndex: number) => {
+                const available = Math.max(0, Number(item.quantity || 0) - Number(order.paidQuantities?.[String(lineIndex)] || 0) - Number(item.cancelledQuantity || 0));
+                const key = `${order.id}:${lineIndex}`;
+                return <div className="bill-item" key={key}>
+                  <span>{item.name || "Produto"} · {formatCurrency(Number(item.price) || 0)}</span>
+                  <input aria-label={`Quantidade de ${item.name || "produto"} para receber`} type="number" min="0" max={available} step="1" value={selectedItemQuantities[key] ?? available} onChange={(event) => {
+                    const quantity = Number(event.target.value);
+                    if (!Number.isInteger(quantity) || quantity < 0 || quantity > available) return;
+                    setSelectedItemQuantities((current) => ({ ...current, [key]: quantity }));
+                  }} />
+                </div>;
+              })}
+            </div>;
+          })}
+        </div>
+      </div>
+
+      {canCloseAccounts && <div className="payment-options">
+        <select value={transferDestination} onChange={(event) => setTransferDestination(event.target.value)} aria-label="Mesa de destino">
+          <option value="">Transferir pedidos selecionados para...</option>
+          {operationalTables.filter((table) => table.number !== selectedTable.number && table.status !== "reservada").map((table) => <option key={table.number} value={table.number}>Mesa {table.number}{table.status === "ocupada" ? " (juntar conta)" : ""}</option>)}
+        </select>
+        <button className="secondary-button" type="button" onClick={transferSelectedOrders} disabled={transferringOrders || closingOrders.length === 0}>
+          {transferringOrders ? "Transferindo..." : "Transferir pedidos selecionados"}
+        </button>
+      </div>}
+
+      <div className="closing-summary">
               <div>
                 <span>Subtotal</span>
 
                 <strong>
                   {formatCurrency(
-                    billSubtotal,
+                    closingSubtotal,
                   )}
                 </strong>
               </div>
@@ -1400,7 +1535,7 @@ export default function TablesModule() {
 
                 <strong>
                   {formatCurrency(
-                    serviceFee,
+                    closingFee,
                   )}
                 </strong>
               </div>
@@ -1410,7 +1545,7 @@ export default function TablesModule() {
 
                 <strong>
                   {formatCurrency(
-                    closingTotal,
+                    closingAmount,
                   )}
                 </strong>
               </div>
@@ -1476,6 +1611,22 @@ export default function TablesModule() {
               Confirmar pagamento e liberar
               mesa
             </button>
+          </div>
+        </div>
+      )}
+
+      {cancellationTarget && (
+        <div className="modal-overlay" onClick={() => { setCancellationTarget(null); setSupervisorPin(""); }} role="presentation">
+          <div className="modal table-form-modal" onClick={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="cancel-item-title">
+            <button className="modal-close" type="button" onClick={() => { setCancellationTarget(null); setSupervisorPin(""); }} aria-label="Fechar cancelamento"><X size={20} /></button>
+            <div className="modal-title"><span>COMANDA</span><h2 id="cancel-item-title">Cancelar item</h2><p>{cancellationTarget.name} · máximo {cancellationTarget.quantity}</p></div>
+            <form className="table-form" onSubmit={(event) => { event.preventDefault(); void submitItemCancellation(); }}>
+              <label className="form-field"><span>Quantidade</span><input type="number" min="1" max={cancellationTarget.quantity} step="1" value={cancellationQuantity} onChange={(event) => setCancellationQuantity(event.target.value)} required /></label>
+              <label className="form-field"><span>Motivo</span><input maxLength={120} value={cancellationReason} onChange={(event) => setCancellationReason(event.target.value)} required /></label>
+              <label className="form-field"><span>Código do gerente</span><input autoComplete="off" maxLength={25} value={supervisorCode} onChange={(event) => setSupervisorCode(event.target.value.toUpperCase())} required /></label>
+              <label className="form-field"><span>PIN do gerente</span><input type="password" inputMode="numeric" autoComplete="new-password" maxLength={8} value={supervisorPin} onChange={(event) => setSupervisorPin(event.target.value.replace(/\D/g, ""))} required /></label>
+              <div className="modal-actions"><button className="secondary-button" type="button" onClick={() => { setCancellationTarget(null); setSupervisorPin(""); }}>Voltar</button><button className="danger-button" type="submit" disabled={cancellingItem}>{cancellingItem ? "Registrando..." : "Autorizar cancelamento"}</button></div>
+            </form>
           </div>
         </div>
       )}

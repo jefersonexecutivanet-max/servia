@@ -27,6 +27,7 @@ import { formatCurrency } from "../utils/format";
 import { generatePrintContent, printContent as printToPrinter, shouldAutoPrintOrders, getRestaurantPrinterSettings, saveRestaurantPrinterSettings } from "../utils/printer";
 import type { Order, OrderStatus } from "../types/order";
 import { useRestaurantScope } from "../contexts/RestaurantContext";
+import { orderApi } from "../utils/employeeApi";
 import { convertOrder, formatTime, statusClass, statusLabel, shouldClaimOrderPrint, getReliableTotal } from "../utils/orders";
 
 type Filter = "todos" | OrderStatus;
@@ -89,14 +90,14 @@ export default function KitchenModule() {
         // Move each new order into preparation as soon as it reaches the kitchen.
         nextOrders.forEach((order) => {
           if (order.status === "novo" && !preparingOrdersRef.current.has(order.id)) {
-            updateDoc(doc(db, "orders", order.id), {
-              status: "preparando",
-            })
+            preparingOrdersRef.current.add(order.id);
+            orderApi("accept", { restaurantId, orderId: order.id })
               .then(() => {
-                preparingOrdersRef.current.add(order.id);
+                setError("");
               })
               .catch((updateError) => {
                 console.error("Erro ao iniciar o preparo automaticamente:", updateError);
+                setError(updateError instanceof Error ? updateError.message : "Não foi possível aceitar o pedido.");
               });
           }
         });

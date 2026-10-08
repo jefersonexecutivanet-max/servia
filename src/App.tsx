@@ -923,11 +923,25 @@ function DashboardContent({
   const [dashboardOrders, setDashboardOrders] = useState<any[]>([]);
   const [dashboardPayments, setDashboardPayments] = useState<any[]>([]);
   const [dashboardTables, setDashboardTables] = useState<any[]>([]);
+  const [systemSummary, setSystemSummary] = useState<{
+    restaurantCount: number; activeRestaurantCount: number; pendingRestaurantCount: number; staffCount: number;
+    revenueThisMonthCents: number; pendingCents: number;
+    recentPayments: Array<{ amountCents: number; createdAt: number; restaurantName: string; kind: string }>;
+  } | null>(null);
   useEffect(() => {
     setDashboardOrders([]);
     setDashboardPayments([]);
     setDashboardTables([]);
-    if (!restaurantId || systemAdmin) {
+    if (systemAdmin) {
+      let active = true;
+      const loadSummary = () => employeeApi<typeof systemSummary>("system-summary", {}).then((summary) => {
+        if (active) setSystemSummary(summary);
+      }).catch((error) => console.error("Erro ao carregar o resumo financeiro do Servia:", error));
+      void loadSummary();
+      const interval = window.setInterval(() => void loadSummary(), 60_000);
+      return () => { active = false; window.clearInterval(interval); };
+    }
+    if (!restaurantId) {
       return;
     }
     const stopOrders = onSnapshot(query(collection(db, "orders"), where("restaurantId", "==", restaurantId)), (snapshot) => {
@@ -985,7 +999,7 @@ function DashboardContent({
             <div>
               <span>Receita Mensal</span>
 
-              <strong>R$ 0,00</strong>
+              <strong>{formatCurrency((systemSummary?.revenueThisMonthCents || 0) / 100)}</strong>
             </div>
           </div>
 
@@ -997,7 +1011,7 @@ function DashboardContent({
             <div>
               <span>Restaurantes Ativos</span>
 
-              <strong>0</strong>
+              <strong>{systemSummary?.activeRestaurantCount ?? "—"}</strong>
             </div>
           </div>
 
@@ -1009,10 +1023,10 @@ function DashboardContent({
             <div>
               <span>Pagamentos Pendentes</span>
 
-              <strong>R$ 0,00</strong>
+              <strong>{formatCurrency((systemSummary?.pendingCents || 0) / 100)}</strong>
 
               <small className="neutral">
-                5 aguardando confirmaÃ§Ã£o
+                {systemSummary ? `${systemSummary.pendingRestaurantCount} aguardando confirmação` : "Carregando dados"}
               </small>
             </div>
           </div>
@@ -1025,10 +1039,10 @@ function DashboardContent({
             <div>
               <span>Total de UsuÃ¡rios</span>
 
-              <strong>0</strong>
+              <strong>{systemSummary?.staffCount ?? "—"}</strong>
 
               <small className="positive">
-                +12 novos usuÃ¡rios
+                {systemSummary ? `${systemSummary.restaurantCount} estabelecimentos cadastrados` : "Carregando dados"}
               </small>
             </div>
           </div>
@@ -1073,7 +1087,12 @@ function DashboardContent({
             </div>
 
             <div className="payment-list">
-              <div className="empty-state">Nenhum pagamento registrado.</div>
+              {!systemSummary?.recentPayments.length ? <div className="empty-state">Nenhum pagamento registrado.</div> : systemSummary.recentPayments.map((payment, index) => (
+                <div className="payment-item" key={`${payment.createdAt}-${index}`}>
+                  <div><strong>{payment.restaurantName}</strong><small>{payment.kind === "setup_and_monthly" ? "Implantação + mensalidade" : payment.kind === "maintenance" ? "Manutenção" : "Mensalidade"} · {payment.createdAt ? new Date(payment.createdAt).toLocaleDateString("pt-BR") : ""}</small></div>
+                  <strong>{formatCurrency(payment.amountCents / 100)}</strong>
+                </div>
+              ))}
             </div>
           </div>
         </div>
@@ -1615,7 +1634,7 @@ function AdminApplication({
     }
 
     if (active === "Mesas") {
-      return <TablesModule />;
+      return <TablesModule canCloseAccounts={staffRole === "CASHIER"} />;
     }
 
     if (active === "Giro de Mesa") {

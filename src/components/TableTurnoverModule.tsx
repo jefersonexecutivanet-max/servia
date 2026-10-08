@@ -11,7 +11,6 @@ import type { TableStatus } from "../types/table";
 import { collection, onSnapshot, query, where } from "firebase/firestore";
 import { db } from "../firebase";
 import { useRestaurantScope } from "../contexts/RestaurantContext";
-import { paymentApi } from "../utils/employeeApi";
 
 type TableCall = {
   id: string;
@@ -187,26 +186,6 @@ export default function TableTurnoverModule({ embedded = false }: { embedded?: b
     };
   }, [liveTables, payments]);
 
-  async function releaseTable(tableNumber: number) {
-    const table = liveTables.find((item) => item.number === tableNumber);
-    if (!table || table.total <= 0) {
-      window.alert("Não há valor registrado para receber nesta mesa.");
-      return;
-    }
-    if (!window.confirm(`Confirmar recebimento de ${formatCurrency(table.total)} e liberar a mesa ${tableNumber}?`)) return;
-    const method = window.prompt("Informe a forma de pagamento: pix, card ou cash", "pix");
-    if (!method || !["pix", "card", "cash"].includes(method)) {
-      window.alert("Forma de pagamento inválida. Use pix, card ou cash.");
-      return;
-    }
-    try {
-      await paymentApi("close", { restaurantId, tableNumber, paymentMethod: method });
-    } catch (error) {
-      console.error("Erro ao liberar mesa:", error);
-      window.alert(error instanceof Error ? error.message : "Não foi possível confirmar o recebimento e liberar a mesa.");
-    }
-  }
-
   if (loading) {
     if (embedded) {
       return <div className="turnover-embedded-loading">Carregando mesas...</div>;
@@ -378,17 +357,6 @@ export default function TableTurnoverModule({ embedded = false }: { embedded?: b
                 )}
               </div>
 
-              {table.status === "ocupada" && (
-                <div className="table-actions">
-                  <button
-                    className="table-action"
-                    type="button"
-                    onClick={() => releaseTable(table.number)}
-                  >
-                    Liberar
-                  </button>
-                </div>
-              )}
             </div>
           ))}
         </div>

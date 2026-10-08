@@ -4,6 +4,11 @@ export type ProductExtra = {
   price: number;
 };
 
+export type ProductRecipeItem = {
+  stockId: string;
+  quantity: number;
+};
+
 export type Product = {
   id: string;
   name: string;
@@ -15,4 +20,5 @@ export type Product = {
   featured: boolean;
   extras: ProductExtra[];
   notesEnabled: boolean;
+  recipe?: ProductRecipeItem[];
 };

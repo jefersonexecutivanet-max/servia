@@ -112,6 +112,25 @@ export default function ReportsModule() {
   const currentPayments = completedPayments.filter((payment) => belongsTo(payment, currentRange));
   const previousPayments = completedPayments.filter((payment) => belongsTo(payment, previousRange));
   const currentData = summarize(currentPayments);
+  const paymentMethodTotals = currentPayments.reduce((totals: Record<string, number>, payment) => {
+    const parts = Array.isArray(payment.paymentParts) && payment.paymentParts.length
+      ? payment.paymentParts
+      : [{ method: payment.method || payment.paymentMethod || "other", amount: payment.amount }];
+    parts.forEach((part: RecordData) => {
+      const method = String(part.method || "other");
+      const amount = Number(part.amount ?? (Number(part.amountCents) / 100)) || 0;
+      totals[method] = (totals[method] || 0) + amount;
+    });
+    return totals;
+  }, {});
+  const operatorTotals = currentPayments.reduce((totals: Record<string, { amount: number; payments: number }>, payment) => {
+    const operator = String(payment.createdByName || payment.createdBy || "Operador não identificado");
+    if (!totals[operator]) totals[operator] = { amount: 0, payments: 0 };
+    totals[operator].amount += Number(payment.amount) || 0;
+    totals[operator].payments += 1;
+    return totals;
+  }, {});
+  const sortedOperatorTotals = Object.entries(operatorTotals).sort((first, second) => second[1].amount - first[1].amount);
   const previousData = summarize(previousPayments);
   const currentExpenses = cashTransactions
     .filter((item) => item.type === "saida" && belongsTo(item, currentRange))
@@ -170,8 +189,10 @@ export default function ReportsModule() {
       ["RESUMO", "Despesas registradas", currentExpenses.toFixed(2)],
       ["RESUMO", "Resultado estimado", estimatedResult.toFixed(2)],
       [],
-      ["PAGAMENTOS", "Data", "Mesa", "Forma de pagamento", "Valor", "Clientes"],
-      ...currentPayments.map((payment) => ["PAGAMENTO", formatDate(payment.createdAt), payment.tableNumber ?? "", payment.method ?? payment.paymentMethod ?? "", Number(payment.amount) || 0, Number(payment.guests) || 0]),
+      ["PAGAMENTOS", "Data", "Mesa", "Forma de pagamento", "Operador", "Valor", "Clientes"],
+      ...sortedOperatorTotals.map(([operator, totals]) => ["TOTAL POR OPERADOR", operator, totals.payments, totals.amount.toFixed(2)]),
+      ...Object.entries(paymentMethodTotals).map(([method, amount]) => ["TOTAL POR FORMA", method, amount.toFixed(2)]),
+      ...currentPayments.map((payment) => ["PAGAMENTO", formatDate(payment.createdAt), payment.tableNumber ?? "", payment.method ?? payment.paymentMethod ?? "", payment.createdByName || payment.createdBy || "Operador não identificado", Number(payment.amount) || 0, Number(payment.guests) || 0]),
       [],
       ["DESPESAS", "Data", "Descrição", "Categoria", "Valor", "Forma de pagamento"],
       ...cashTransactions
@@ -222,11 +243,13 @@ export default function ReportsModule() {
       </div>
 
       <div className="reports-grid">
+        <div className="report-card"><div className="report-card-header"><h3>Vendas por operador</h3><span className="report-badge">Período selecionado</span></div><div className="metrics-list">{sortedOperatorTotals.length === 0 ? <p className="empty-state">Nenhuma venda identificada por operador.</p> : sortedOperatorTotals.map(([operator, totals]) => <div className="metric-item" key={operator}><div className="metric-label"><span>{operator}</span><small>{totals.payments} pagamentos</small></div><div className="metric-value"><strong>{money(totals.amount)}</strong></div></div>)}</div></div>
         <div className="report-card"><div className="report-card-header"><h3>Produtos mais vendidos</h3><span className="report-badge">Top 5</span></div><div className="top-products-list">{topProducts.length === 0 ? <p className="empty-state">Nenhum produto vendido no período.</p> : topProducts.map((product, index) => <div key={product.name} className="top-product-item"><div className="product-rank">{index + 1}</div><div className="product-info"><strong>{product.name}</strong><span>{product.quantity} vendidos</span></div><div className="product-revenue"><strong>{money(product.revenue)}</strong></div></div>)}</div></div>
 
         <div className="report-card"><div className="report-card-header"><h3>Horários dos pedidos concluídos</h3><span className="report-badge">Período selecionado</span></div><div className="peak-hours-chart">{peakHours.length === 0 ? <p className="empty-state">Sem pedidos concluídos no período.</p> : peakHours.map((hour) => { const max = Math.max(...peakHours.map((entry) => entry.orders), 1); return <div key={hour.hour} className="peak-hour-item"><div className="hour-bar-container"><div className="hour-bar" style={{ width: `${hour.orders / max * 100}%` }} /></div><div className="hour-info"><span>{hour.hour}</span><strong>{hour.orders} pedidos</strong></div></div>; })}</div></div>
 
-        <div className="report-card"><div className="report-card-header"><h3>Indicadores operacionais</h3><span className="report-badge">Dados disponíveis</span></div><div className="metrics-list"><div className="metric-item"><div className="metric-label"><span>Pedidos concluídos</span><small>No período selecionado</small></div><div className="metric-value"><strong>{completedOrders.length}</strong></div></div><div className="metric-item"><div className="metric-label"><span>Saídas de caixa</span><small>Despesas lançadas no período</small></div><div className="metric-value"><strong>{money(currentExpenses)}</strong></div></div><div className="metric-item"><div className="metric-label"><span>Resultado estimado</span><small>Não inclui custos não lançados no caixa</small></div><div className="metric-value"><strong>{money(estimatedResult)}</strong></div></div></div></div>
+        <div className="report-card"><div className="report-card-header"><h3>Indicadores operacionais</h3><span className="report-badge">Dados disponíveis</span></div><div className="metrics-list"><div className="metric-item"><div className="metric-label"><span>Pedidos concluídos</span><small>No período selecionado</small></div><div className="metric-value"><strong>{completedOrders.length}</strong></div></div>{Object.entries(paymentMethodTotals).map(([method, amount]) => <div className="metric-item" key={method}><div className="metric-label"><span>Pagamento · {method}</span><small>Período selecionado</small></div><div className="metric-value"><strong>{money(amount)}</strong></div></div>)}
+        <div className="metric-item"><div className="metric-label"><span>Saídas de caixa</span><small>Despesas lançadas no período</small></div><div className="metric-value"><strong>{money(currentExpenses)}</strong></div></div><div className="metric-item"><div className="metric-label"><span>Resultado estimado</span><small>Não inclui custos não lançados no caixa</small></div><div className="metric-value"><strong>{money(estimatedResult)}</strong></div></div></div></div>
 
         <div className="report-card full-width"><div className="report-card-header"><h3>Vendas confirmadas — últimos 7 dias</h3><span className="report-badge">Pagamentos no banco</span></div><div className="revenue-trend">{trend.every((day) => day.revenue === 0) ? <p className="empty-state">Sem dados suficientes para exibir o gráfico.</p> : trend.map((day) => <div key={day.label} className="trend-item"><div className="trend-bar-container"><div className="trend-bar" style={{ width: `${day.revenue / Math.max(...trend.map((entry) => entry.revenue), 1) * 100}%` }} /></div><div className="trend-info"><span>{day.label}</span><strong>{money(day.revenue)}</strong></div></div>)}</div></div>
       </div>

@@ -11,7 +11,7 @@ import {
   type Firestore,
 } from "firebase/firestore";
 import { db } from "../firebase";
-import type { Product, ProductExtra } from "../types/menu";
+import type { Product, ProductExtra, ProductRecipeItem } from "../types/menu";
 
 function toExtras(value: unknown): ProductExtra[] {
   if (!Array.isArray(value)) {
@@ -47,6 +47,7 @@ function convertProduct(id: string, data: DocumentData): Product {
     featured: Boolean(data.featured),
     extras: toExtras(data.extras),
     notesEnabled: data.notesEnabled !== false,
+    recipe: Array.isArray(data.recipe) ? data.recipe.filter((item: unknown): item is ProductRecipeItem => Boolean(item && typeof item === "object" && typeof (item as ProductRecipeItem).stockId === "string" && Number.isFinite(Number((item as ProductRecipeItem).quantity)) && Number((item as ProductRecipeItem).quantity) > 0)).map((item: ProductRecipeItem) => ({ stockId: item.stockId, quantity: Number(item.quantity) })) : [],
   };
 }
 
@@ -63,6 +64,7 @@ function toFirestore(product: Product, restaurantId: string) {
     featured: product.featured,
     extras: product.extras,
     notesEnabled: product.notesEnabled,
+    recipe: product.recipe || [],
   };
 }
 

@@ -36,6 +36,7 @@ function fail(code, message) {
     unauthenticated: 401,
     "permission-denied": 403,
     "not-found": 404,
+    "failed-precondition": 409,
     "resource-exhausted": 429,
     internal: 500,
   };
@@ -353,7 +354,76 @@ async function changeOwnEmployeePin(data, request, db, auth, user) {
   return { success: true };
 }
 
-const actions = { createEmployee, updateEmployee, deleteEmployee, loginEmployee, changeOwnEmployeePin };
+async function getSystemSummary(_data, _request, db, _auth, user) {
+  if (!isSystemOwner(user)) fail("permission-denied", "Apenas o administrador do Servia pode consultar este painel.");
+  const [restaurantSnapshot, staffSnapshot, paymentSnapshot] = await Promise.all([
+    db.collection("restaurants").get(),
+    db.collection("restaurantStaff").where("active", "==", true).get(),
+    db.collection("systemPayments").get(),
+  ]);
+  const now = Date.now();
+  const monthStart = new Date();
+  monthStart.setDate(1);
+  monthStart.setHours(0, 0, 0, 0);
+  const restaurants = restaurantSnapshot.docs.map((snapshot) => ({ id: snapshot.id, ...snapshot.data() }));
+  const activeRestaurants = restaurants.filter((restaurant) => restaurant.status === "active" && restaurant.monthlyPaidUntil?.toMillis?.() > now);
+  const pendingRestaurants = restaurants.filter((restaurant) => !(restaurant.status === "active" && restaurant.monthlyPaidUntil?.toMillis?.() > now));
+  const payments = paymentSnapshot.docs.map((snapshot) => ({ id: snapshot.id, ...snapshot.data() }));
+  const revenueThisMonthCents = payments.reduce((sum, payment) => {
+    const createdAt = payment.createdAt?.toMillis?.() || 0;
+    return createdAt >= monthStart.getTime() ? sum + (Number(payment.amountCents) || 0) : sum;
+  }, 0);
+  const monthlyRunRateCents = activeRestaurants.reduce((sum, restaurant) => sum + Math.round((Number(restaurant.monthlyFee) || 0) * 100), 0);
+  const pendingCents = pendingRestaurants.reduce((sum, restaurant) => sum + Math.round((Number(restaurant.monthlyPaidUntil ? restaurant.monthlyFee : (Number(restaurant.setupFee) || 0) + (Number(restaurant.monthlyFee) || 0))) * 100), 0);
+  const nameByRestaurant = new Map(restaurants.map((restaurant) => [restaurant.id, String(restaurant.name || "Restaurante")]));
+  const recentPayments = payments.sort((first, second) => (second.createdAt?.toMillis?.() || 0) - (first.createdAt?.toMillis?.() || 0)).slice(0, 10).map((payment) => ({
+    amountCents: Number(payment.amountCents) || 0,
+    createdAt: payment.createdAt?.toMillis?.() || 0,
+    restaurantName: nameByRestaurant.get(payment.restaurantId) || "Restaurante",
+    kind: String(payment.kind || "subscription"),
+  }));
+  return { restaurantCount: restaurants.length, activeRestaurantCount: activeRestaurants.length, pendingRestaurantCount: pendingRestaurants.length, staffCount: staffSnapshot.size,
+    monthlyRunRateCents, revenueThisMonthCents, pendingCents, recentPayments };
+}
+
+async function confirmRestaurantPayment(data, _request, db, _auth, user) {
+  if (!isSystemOwner(user)) fail("permission-denied", "Apenas o administrador do Servia pode confirmar pagamentos.");
+  const restaurantId = requireString(data?.restaurantId, "Restaurante", 128);
+  const idempotencyKey = requireString(data?.idempotencyKey, "Chave da operação", 128);
+  if (!/^[A-Za-z0-9_-]{8,128}$/.test(idempotencyKey)) fail("invalid-argument", "Chave de operação inválida.");
+  const restaurantRef = db.collection("restaurants").doc(restaurantId);
+  const paymentRef = db.collection("systemPayments").doc(`subscription_${idempotencyKey}`);
+  return db.runTransaction(async (transaction) => {
+    const [restaurantSnapshot, paymentSnapshot] = await Promise.all([transaction.get(restaurantRef), transaction.get(paymentRef)]);
+    if (paymentSnapshot.exists) {
+      const payment = paymentSnapshot.data();
+      if (payment.restaurantId !== restaurantId || payment.actorUid !== user.uid) fail("permission-denied", "Chave de operação já utilizada.");
+      return { reused: true, paymentId: paymentRef.id };
+    }
+    if (!restaurantSnapshot.exists) fail("not-found", "Restaurante não encontrado.");
+    const restaurant = restaurantSnapshot.data();
+    const currentExpiry = restaurant.monthlyPaidUntil?.toMillis?.() || 0;
+    if (restaurant.status === "active" && currentExpiry > Date.now()) fail("failed-precondition", "O acesso deste restaurante já está liberado.");
+    const isFirstPayment = !currentExpiry && restaurant.paymentStatus !== "paid";
+    const setupFeeCents = Math.round((Number(restaurant.setupFee) || 0) * 100);
+    const monthlyFeeCents = Math.round((Number(restaurant.monthlyFee) || 0) * 100);
+    const amountCents = isFirstPayment ? setupFeeCents + monthlyFeeCents : monthlyFeeCents;
+    if (amountCents <= 0) fail("failed-precondition", "O valor cadastrado para esta cobrança é inválido.");
+    const now = Date.now();
+    const paidUntil = Timestamp.fromMillis(Math.max(now, currentExpiry) + 30 * 24 * 60 * 60 * 1000);
+    transaction.update(restaurantRef, {
+      paymentStatus: "paid", status: "active", paidAt: FieldValue.serverTimestamp(),
+      ...(isFirstPayment ? { activatedAt: FieldValue.serverTimestamp() } : {}), monthlyPaidUntil: paidUntil,
+    });
+    transaction.create(paymentRef, {
+      restaurantId, restaurantName: String(restaurant.name || "Restaurante"), kind: isFirstPayment ? "setup_and_monthly" : "monthly",
+      amountCents, actorUid: user.uid, createdAt: FieldValue.serverTimestamp(),
+    });
+    return { reused: false, paymentId: paymentRef.id, amountCents, monthlyPaidUntil: paidUntil.toMillis() };
+  });
+}
+
+const actions = { createEmployee, updateEmployee, deleteEmployee, loginEmployee, changeOwnEmployeePin, getSystemSummary, confirmRestaurantPayment };
 
 export default async function employeeApi(action, request, response) {
   if (request.method === "OPTIONS") return response.status(204).end();

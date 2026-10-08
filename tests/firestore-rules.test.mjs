@@ -49,6 +49,7 @@ beforeEach(async () => {
       setDoc(doc(db, "waiterDirectory/restaurant-a/staff/waiter-inactive"), { restaurantId: "restaurant-a", name: "Caio", role: "WAITER", active: false }),
       setDoc(doc(db, "waiterDirectory/restaurant-b/staff/waiter-2"), { restaurantId: "restaurant-b", name: "Bruno", role: "WAITER", active: true }),
       setDoc(doc(db, "employeeSecrets/waiter-pin"), { pinHash: "never-readable-by-client" }),
+      setDoc(doc(db, "systemPayments/subscription_fixture"), { restaurantId: "restaurant-a", amountCents: 10000, actorUid: "system-owner", createdAt: timestamp }),
       setDoc(doc(db, "employeeCodes/FUNC-ABCDEFGHIJKLMNOPQRST"), { employeeId: "waiter-1", restaurantId: "restaurant-a", active: true }),
       setDoc(doc(db, "waiters/waiter-1"), { restaurantId: "restaurant-a", name: "Ana", role: "Garçom", employeeNumber: "101", email: "ana@example.com", uid: "auth-ana", active: true }),
       setDoc(doc(db, "waiters/waiter-2"), { restaurantId: "restaurant-b", name: "Bruno", role: "Garçom", employeeNumber: "102", email: "bruno@example.com", uid: "auth-bruno", active: true }),
@@ -295,6 +296,14 @@ test("system owner requires the configured uid and email", async () => {
   await assertFails(setDoc(doc(wrongEmail, "restaurants/other"), { restaurant: { name: "Unauthorized" } }));
 });
 
+test("system payment ledger is readable only by the system owner and never client-writable", async () => {
+  const owner = testEnvironment.authenticatedContext("KVoJiEGKnnceyADEqFhcflynohr2", { email: "finho60@hotmail.com" }).firestore();
+  const restaurant = testEnvironment.authenticatedContext("restaurant-a", { email: "owner-a@example.com" }).firestore();
+  await assertSucceeds(getDoc(doc(owner, "systemPayments/subscription_fixture")));
+  await assertFails(getDoc(doc(restaurant, "systemPayments/subscription_fixture")));
+  await assertFails(setDoc(doc(owner, "systemPayments/fake-payment"), { restaurantId: "restaurant-a", amountCents: 1 }));
+});
+
 test("restaurant owner manages own staff without system privileges", async () => {
   await testEnvironment.withSecurityRulesDisabled(async (context) => {
     await updateDoc(doc(context.firestore(), "restaurants/restaurant-a"), { ownerEmail: "jeferson.executiva.net@gmail.com" });
@@ -420,6 +429,14 @@ test("pagamentos de pedidos só são registrados pela API e pedidos pagos ficam 
       role: "CASHIER",
       active: true,
     });
+    await setDoc(doc(context.firestore(), "restaurantStaff/floor-a"), {
+      restaurantId: "restaurant-a",
+      role: "FLOOR_MANAGER",
+      active: true,
+    });
+    await setDoc(doc(context.firestore(), "tables/restaurant-a_12"), {
+      restaurantId: "restaurant-a", number: 12, status: "ocupada", guests: 2, total: 25,
+    });
   });
 
   const owner = testEnvironment.authenticatedContext("restaurant-a", {
@@ -427,6 +444,11 @@ test("pagamentos de pedidos só são registrados pela API e pedidos pagos ficam 
     email_verified: true,
   }).firestore();
   const cashier = testEnvironment.authenticatedContext("cashier-a").firestore();
+  const floorManager = testEnvironment.authenticatedContext("floor-a").firestore();
+
+  await assertFails(updateDoc(doc(owner, "orders/order-1"), { total: 0.01 }));
+  await assertFails(updateDoc(doc(owner, "orders/order-1"), { items: [{ quantity: 1, price: 0.01 }] }));
+  await assertFails(deleteDoc(doc(owner, "orders/order-1")));
 
   await assertFails(updateDoc(doc(owner, "orders/order-1"), {
     paymentStatus: "paid",
@@ -436,6 +458,9 @@ test("pagamentos de pedidos só são registrados pela API e pedidos pagos ficam 
     paymentStatus: "paid",
     paymentId: "forged-payment",
   }));
+  await assertFails(updateDoc(doc(owner, "tables/restaurant-a_12"), { status: "livre", guests: 0, total: 0 }));
+  await assertFails(updateDoc(doc(cashier, "tables/restaurant-a_12"), { status: "livre", guests: 0, total: 0 }));
+  await assertFails(updateDoc(doc(floorManager, "tables/restaurant-a_12"), { status: "livre", guests: 0, total: 0 }));
   await assertFails(updateDoc(doc(owner, "orders/paid-order"), { total: 0.01 }));
   await assertFails(updateDoc(doc(owner, "orders/paid-order"), { status: "cancelado" }));
   await assertFails(deleteDoc(doc(owner, "orders/paid-order")));
@@ -455,13 +480,25 @@ test("proprietário ativo gerencia dados operacionais apenas no próprio tenant"
     restaurantId: "restaurant-b", name: "Item externo", category: "Insumos", quantity: 1,
     unit: "un", minQuantity: 0, price: 1, lastUpdated: Timestamp.now(),
   }));
-  await assertSucceeds(setDoc(doc(owner, "cashTransactions/expense-a"), {
+  await assertFails(setDoc(doc(owner, "cashTransactions/expense-a"), {
     restaurantId: "restaurant-a", type: "saida", category: "Insumos", description: "Compra",
     amount: 50, paymentMethod: "pix", createdAt: Timestamp.now(),
   }));
+  await testEnvironment.withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(), "cashTransactions/expense-a"), {
+      restaurantId: "restaurant-a", type: "saida", category: "Insumos", description: "Compra",
+      amount: 50, paymentMethod: "pix", createdAt: Timestamp.now(),
+    });
+  });
   await assertFails(setDoc(doc(owner, "cashTransactions/expense-b"), {
     restaurantId: "restaurant-b", type: "saida", category: "Insumos", description: "Externo",
     amount: 50, paymentMethod: "pix", createdAt: Timestamp.now(),
+  }));
+  await assertFails(setDoc(doc(owner, "cashSessions/session-forged"), {
+    restaurantId: "restaurant-a", status: "open", openingAmount: 200,
+  }));
+  await assertFails(setDoc(doc(owner, "cashRegisters/restaurant-a"), {
+    restaurantId: "restaurant-a", activeSessionId: "session-forged",
   }));
   await assertFails(setDoc(doc(owner, "payments/payment-a"), {
     restaurantId: "restaurant-a", tableId: "restaurant-a_12", tableNumber: 12, method: "pix", amount: 25,
@@ -486,7 +523,7 @@ test("proprietário ativo gerencia dados operacionais apenas no próprio tenant"
   await assertFails(updateDoc(doc(owner, "cashTransactions/expense-a"), { description: "Compra registrada" }));
   await assertSucceeds(deleteDoc(doc(owner, "stock/stock-a")));
   await assertFails(deleteDoc(doc(owner, "cashTransactions/expense-a")));
-  await assertSucceeds(setDoc(doc(owner, "cashTransactions/estorno_expense-a"), {
+  await assertFails(setDoc(doc(owner, "cashTransactions/estorno_expense-a"), {
     restaurantId: "restaurant-a", type: "estorno", category: "Insumos", description: "Estorno: Compra",
     amount: 50, paymentMethod: "pix", reference: "expense-a", createdBy: "restaurant-a", createdAt: Timestamp.now(),
   }));
@@ -504,6 +541,28 @@ test("cliente só solicita liberação para uma mesa pertencente ao restaurante"
     restaurantId: "restaurant-a", tableId: "restaurant-b_15", tableNumber: 15,
     totalAmount: 25, paymentMethod: "pix", status: "pending", createdAt: Timestamp.now(),
   }));
+});
+
+test("movimentos de estoque são legíveis pelo próprio restaurante e escritos somente pelo servidor", async () => {
+  await testEnvironment.withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(), "stockMovements/movement-a"), {
+      restaurantId: "restaurant-a", stockId: "stock-a", referenceId: "order-a",
+      type: "order_accepted", quantity: -1, createdAt: Timestamp.now(),
+    });
+  });
+  const owner = testEnvironment.authenticatedContext("restaurant-a", {
+    email: "owner-a@example.com", email_verified: true,
+  }).firestore();
+  const outsider = testEnvironment.authenticatedContext("restaurant-b", {
+    email: "other@example.com", email_verified: true,
+  }).firestore();
+  await assertSucceeds(getDoc(doc(owner, "stockMovements/movement-a")));
+  await assertFails(getDoc(doc(outsider, "stockMovements/movement-a")));
+  await assertFails(setDoc(doc(owner, "stockMovements/forged"), {
+    restaurantId: "restaurant-a", stockId: "stock-a", quantity: 1000,
+  }));
+  await assertFails(updateDoc(doc(owner, "stockMovements/movement-a"), { quantity: 1000 }));
+  await assertFails(deleteDoc(doc(owner, "stockMovements/movement-a")));
 });
 
 test("restaurante novo não herda pedidos, pagamentos, caixa ou estoque", async () => {
