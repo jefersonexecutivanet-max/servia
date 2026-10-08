@@ -47,14 +47,10 @@ async function assertCanCloseRestaurant(db, user, restaurantId) {
   const paidUntil = restaurant.monthlyPaidUntil;
   if (restaurant.status !== "active" || !paidUntil?.toMillis || paidUntil.toMillis() <= Date.now()) fail("permission-denied", "O restaurante não está com o acesso liberado.");
 
-  if (user.uid === restaurantId && String(user.email || "").toLowerCase() === String(restaurant.ownerEmail || "").toLowerCase()) return { role: "OWNER" };
   const staff = await db.collection("restaurantStaff").doc(user.uid).get();
   const data = staff.data();
-  if (staff.exists && data?.active === true && data.restaurantId === restaurantId && ["MANAGER", "CASHIER"].includes(data.role)) return { role: data.role };
-  if (staff.exists && data?.active === true && data.restaurantId === restaurantId && data.role === "WAITER" && typeof data.waiterId === "string") {
-    return { role: "WAITER", waiterId: data.waiterId };
-  }
-  fail("permission-denied", "Você não tem permissão para fechar esta mesa.");
+  if (staff.exists && data?.active === true && data.restaurantId === restaurantId && data.role === "CASHIER") return { role: "CASHIER" };
+  fail("permission-denied", "Somente o Caixa pode fechar mesas e receber pagamentos.");
 }
 
 function cents(value) {
@@ -68,7 +64,7 @@ async function closeTable(data, db, user) {
   const tableNumber = Number(data?.tableNumber);
   if (!Number.isInteger(tableNumber) || tableNumber < 1 || tableNumber > 9999) fail("invalid-argument", "Número da mesa inválido.");
   const paymentMethod = requireMethod(data?.paymentMethod);
-  const actor = await assertCanCloseRestaurant(db, user, restaurantId);
+  await assertCanCloseRestaurant(db, user, restaurantId);
 
   const tableId = `${restaurantId}_${tableNumber}`;
   const tableRef = db.collection("tables").doc(tableId);
@@ -83,12 +79,6 @@ async function closeTable(data, db, user) {
       transaction.get(billRequestRef),
     ]);
     if (!tableSnapshot.exists || tableSnapshot.data().restaurantId !== restaurantId || tableSnapshot.data().number !== tableNumber) fail("not-found", "Mesa não encontrada neste restaurante.");
-    if (actor.role === "WAITER" && (!assignmentSnapshot.exists
-      || assignmentSnapshot.data().restaurantId !== restaurantId
-      || assignmentSnapshot.data().tableNumber !== tableNumber
-      || assignmentSnapshot.data().waiterId !== actor.waiterId)) {
-      fail("permission-denied", "Você só pode fechar mesas atribuídas ao seu atendimento.");
-    }
     const activeOrders = orderSnapshot.docs.filter((snapshot) => {
       const value = snapshot.data();
       return value.status !== "cancelado" && value.paymentStatus !== "paid";

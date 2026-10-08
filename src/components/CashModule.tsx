@@ -1,8 +1,9 @@
 import { useState, useEffect } from "react";
-import { Plus, RotateCcw, Search, TrendingUp, TrendingDown, Wallet } from "lucide-react";
+import { Plus, ReceiptText, RotateCcw, Search, TrendingUp, TrendingDown, Wallet } from "lucide-react";
 import { collection, doc, onSnapshot, query, where, addDoc, serverTimestamp, setDoc } from "firebase/firestore";
 import { auth, db } from "../firebase";
 import { useRestaurantScope } from "../contexts/RestaurantContext";
+import { paymentApi } from "../utils/employeeApi";
 
 interface CashTransaction {
   id: string;
@@ -21,6 +22,10 @@ export default function CashModule() {
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedType, setSelectedType] = useState("todos");
   const [showModal, setShowModal] = useState(false);
+  const [showCloseTableModal, setShowCloseTableModal] = useState(false);
+  const [tableNumber, setTableNumber] = useState("");
+  const [closePaymentMethod, setClosePaymentMethod] = useState<"pix" | "card" | "cash">("pix");
+  const [closingTable, setClosingTable] = useState(false);
 
   const [formData, setFormData] = useState({
     type: "entrada" as "entrada" | "saida",
@@ -140,6 +145,28 @@ export default function CashModule() {
     }
   };
 
+  const handleCloseTable = async () => {
+    const number = Number(tableNumber);
+    if (!restaurantId || !Number.isInteger(number) || number < 1 || number > 9999) {
+      window.alert("Informe um número de mesa válido.");
+      return;
+    }
+    if (!window.confirm(`Receber e fechar a conta da mesa ${number}? O valor será recalculado no servidor.`)) return;
+    setClosingTable(true);
+    try {
+      const result = await paymentApi<{ amount?: number }>("close", { restaurantId, tableNumber: number, paymentMethod: closePaymentMethod });
+      const amount = Number(result?.amount);
+      window.alert(amount > 0 ? `Conta fechada. Total recebido: R$ ${amount.toFixed(2)}.` : "Conta fechada.");
+      setShowCloseTableModal(false);
+      setTableNumber("");
+    } catch (error) {
+      console.error("Erro ao fechar conta:", error);
+      window.alert(error instanceof Error ? error.message : "Não foi possível fechar a conta da mesa.");
+    } finally {
+      setClosingTable(false);
+    }
+  };
+
   return (
     <div className="cash-page">
       <div className="module-header">
@@ -149,10 +176,16 @@ export default function CashModule() {
           <p>Gerencie entradas, saídas e saldo do caixa em tempo real.</p>
         </div>
 
-        <button className="primary-button" type="button" onClick={handleAddTransaction}>
-          <Plus size={18} />
-          Nova Transação
-        </button>
+        <div className="module-actions">
+          <button className="secondary-button" type="button" onClick={() => setShowCloseTableModal(true)}>
+            <ReceiptText size={18} />
+            Fechar conta da mesa
+          </button>
+          <button className="primary-button" type="button" onClick={handleAddTransaction}>
+            <Plus size={18} />
+            Nova Transação
+          </button>
+        </div>
       </div>
 
       {/* Resumo */}
@@ -361,6 +394,29 @@ export default function CashModule() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+      {showCloseTableModal && (
+        <div className="modal-overlay">
+          <div className="modal-content">
+            <h2>Fechar conta da mesa</h2>
+            <div className="form-group">
+              <label>Número da mesa</label>
+              <input type="number" min="1" max="9999" step="1" value={tableNumber} onChange={(event) => setTableNumber(event.target.value)} />
+            </div>
+            <div className="form-group">
+              <label>Forma de pagamento</label>
+              <select value={closePaymentMethod} onChange={(event) => setClosePaymentMethod(event.target.value as "pix" | "card" | "cash")}>
+                <option value="cash">Dinheiro</option>
+                <option value="pix">PIX</option>
+                <option value="card">Cartão</option>
+              </select>
+            </div>
+            <div className="modal-actions">
+              <button className="secondary-button" type="button" disabled={closingTable} onClick={() => setShowCloseTableModal(false)}>Cancelar</button>
+              <button className="primary-button" type="button" disabled={closingTable} onClick={() => void handleCloseTable()}>{closingTable ? "Processando..." : "Receber e fechar"}</button>
+            </div>
           </div>
         </div>
       )}

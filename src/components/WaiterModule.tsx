@@ -30,7 +30,6 @@ import { db } from "../firebase";
 import type { Table, TableStatus } from "../types/table";
 import { formatCurrency } from "../utils/format";
 import { calculateOrderTotal } from "../utils/orders";
-import { paymentApi } from "../utils/employeeApi";
 import { useRestaurantScope } from "../contexts/RestaurantContext";
 import TableTurnoverModule from "./TableTurnoverModule";
 
@@ -577,40 +576,6 @@ export default function WaiterModule({
     }
   }
 
-  async function closeAssignedTable(tableNumber: number) {
-    const tableOrders = orders.filter((order) =>
-      order.tableNumber === tableNumber
-      && order.status !== "cancelado"
-      && order.paymentStatus !== "paid",
-    );
-    const subtotal = tableOrders.reduce((sum, order) => sum + order.total, 0);
-    const confirmation = subtotal > 0
-      ? `Fechar a conta da mesa ${tableNumber}? Subtotal: ${formatCurrency(subtotal)}.`
-      : `Fechar a conta da mesa ${tableNumber}? O total será calculado com base nos pedidos em aberto.`;
-    if (!window.confirm(confirmation)) return;
-    const paymentMethod = window.prompt("Informe a forma de pagamento: pix, card ou cash", "pix")?.trim().toLowerCase();
-    if (!paymentMethod || !["pix", "card", "cash"].includes(paymentMethod)) {
-      setError("Forma de pagamento inválida. Use pix, card ou cash.");
-      return;
-    }
-
-    const closingId = `close-${tableNumber}`;
-    setUpdatingId(closingId);
-    setError("");
-    try {
-      const result = await paymentApi<{ amount?: number }>("close", { restaurantId, tableNumber, paymentMethod });
-      const paidAmount = Number(result?.amount);
-      window.alert(paidAmount > 0
-        ? `Conta da mesa ${tableNumber} fechada. Total recebido: ${formatCurrency(paidAmount)}.`
-        : `Conta da mesa ${tableNumber} fechada.`);
-    } catch (closeError) {
-      console.error("Erro ao fechar conta da mesa:", closeError);
-      setError(closeError instanceof Error ? closeError.message : "Não foi possível fechar a conta da mesa.");
-    } finally {
-      setUpdatingId("");
-    }
-  }
-
   async function advanceRequest(request: ServiceRequest) {
     const nextStatus =
       request.status === "pending" ? "in_progress" : "completed";
@@ -748,15 +713,6 @@ export default function WaiterModule({
                       <span>Total: {formatCurrency(tableOrders.reduce((sum, order) => sum + order.total, 0))}</span>
                     </>
                   )}
-                  <button
-                    type="button"
-                    className="waiter-close-table-button"
-                    disabled={Boolean(updatingId)}
-                    onClick={() => void closeAssignedTable(table.tableNumber)}
-                  >
-                    {updatingId === `close-${table.tableNumber}` ? <LoaderCircle className="waiter-loader" size={17} /> : <ReceiptText size={17} />}
-                    Fechar conta
-                  </button>
                 </article>
               );
             })}
