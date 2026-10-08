@@ -64,8 +64,12 @@ Este roteiro valida os fluxos de restaurante ponta a ponta, com dados controlado
 ## Validações automatizadas disponíveis
 
     npm run test:unit
+    npm run test:e2e
+    npm run test:e2e:integrated
     npx firebase-tools emulators:exec --only firestore --project demo-servia-rules "npm run test:rules"
     npm run lint
     npm run build
 
-Os testes acima são unitários/de regras e build; não substituem a execução desta matriz autenticada no navegador. O repositório não inclui atualmente configuração/dependência Playwright nem contas de homologação. A automação de navegador só deve ser adicionada quando existir ambiente Firebase isolado e contas de teste apropriadas; jamais use produção para preencher essa lacuna.
+`npm run test:e2e` roda os testes de interface básicos. `npm run test:e2e:integrated` inicia Auth e Firestore Emulator em portas dedicadas (9098 e 8081), grava fixtures descartáveis no projeto `demo-servia-e2e` e percorre o pedido do cliente, personalização/adicional e observação, solicitações de garçom e conta, aceite automático e mudança para pronto na cozinha, atualização de status no cliente, abertura do caixa, cotação e recebimento em dinheiro. O cenário confere no emulador o pedido pago, pagamento único, troco, impressão registrada e saldo de estoque. Ele bloqueia tráfego do navegador para fora da máquina e não usa contas, credenciais nem dados de produção.
+
+O pagamento é simulado pelo fluxo de recebimento em dinheiro; o teste não movimenta um gateway PIX/cartão real e não cobre divisão de conta, descontos, sangria ou fechamento do turno. Para essas validações use a matriz manual acima em um ambiente de homologação controlado. Os testes unitários/de regras e os cenários E2E não substituem essa homologação antes do uso real.

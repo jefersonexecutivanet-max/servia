@@ -24,13 +24,15 @@ import {
 } from "firebase/firestore";
 
 const projectId = "demo-servia-rules";
+const emulatorAddress = process.env.FIRESTORE_EMULATOR_HOST || "127.0.0.1:8080";
+const [emulatorHost, emulatorPort] = emulatorAddress.split(":");
 let testEnvironment;
 
 before(async () => {
   const rules = await readFile(new URL("../firestore.rules", import.meta.url), "utf8");
   testEnvironment = await initializeTestEnvironment({
     projectId,
-    firestore: { host: "127.0.0.1", port: 8080, rules },
+    firestore: { host: emulatorHost, port: Number(emulatorPort), rules },
   });
 });
 

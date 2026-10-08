@@ -44,3 +44,8 @@ firebase-service-account.json
 
 # Deployment
 .vercel
+
+# Playwright output
+/test-results/
+/playwright-report/
+/playwright/.cache/

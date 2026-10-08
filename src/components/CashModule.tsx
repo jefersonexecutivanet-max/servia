@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useRef, useState, useEffect } from "react";
 import { Plus, ReceiptText, RotateCcw, Search, TrendingUp, TrendingDown, Wallet, X } from "lucide-react";
 import { collection, doc, onSnapshot, query, where } from "firebase/firestore";
 import { db } from "../firebase";
@@ -70,6 +70,7 @@ export default function CashModule() {
   const [discountReason, setDiscountReason] = useState("");
   const [supervisorCode, setSupervisorCode] = useState("");
   const [supervisorPin, setSupervisorPin] = useState("");
+  const paymentOperationRef = useRef<{ fingerprint: string; key: string } | null>(null);
 
   const [formData, setFormData] = useState({
     type: "entrada" as "entrada" | "saida",
@@ -300,6 +301,21 @@ export default function CashModule() {
     if (requestedParts.some((part) => !Number.isFinite(part.amount) || part.amount <= 0)) { window.alert("Informe o valor de cada forma de pagamento."); return; }
     const inputTotalCents = requestedParts.reduce((sum, part) => sum + Math.round(part.amount * 100), 0);
     if (inputTotalCents !== Math.round(quotedBill.amount * 100)) { window.alert("A soma das formas de pagamento deve ser igual ao total da conta."); return; }
+    const operationFingerprint = JSON.stringify({
+      restaurantId,
+      tableNumber: number,
+      paymentParts: requestedParts,
+      discount: discountRequest ? {
+        type: discountRequest.type,
+        value: discountRequest.value,
+        reason: discountRequest.reason,
+        supervisorCode: discountRequest.supervisorCode,
+      } : undefined,
+      cashReceived,
+    });
+    if (paymentOperationRef.current?.fingerprint !== operationFingerprint) {
+      paymentOperationRef.current = { fingerprint: operationFingerprint, key: crypto.randomUUID() };
+    }
     if (!window.confirm(`Receber e fechar a conta da mesa ${number} no valor de R$ ${quotedBill.amount.toFixed(2)}?`)) return;
     setClosingTable(true);
     try {
@@ -307,6 +323,7 @@ export default function CashModule() {
       const result = await paymentApi<{ amount?: number; change?: number; discount?: number; discountReason?: string; discountAuthorizedBy?: string; items?: Array<{ name: string; quantity: number; price: number; extras?: string[]; notes?: string }>; serviceFee?: number; waiterName?: string }>("close", {
         restaurantId,
         tableNumber: number,
+        idempotencyKey: paymentOperationRef.current.key,
         paymentParts: requestedParts,
         ...(discountRequest ? { discount: discountRequest } : {}),
         ...(hasCash ? { cashReceived: cashReceived || requestedParts.filter((part) => part.method === "cash").reduce((sum, part) => sum + part.amount, 0) } : {}),
@@ -328,6 +345,7 @@ export default function CashModule() {
       setShowCloseTableModal(false);
       setTableNumber("");
       setQuotedBill(null);
+      paymentOperationRef.current = null;
       setPaymentRows([{ method: "pix", amount: "", label: "" }]);
       setCashReceived("");
     } catch (error) {
@@ -615,7 +633,7 @@ export default function CashModule() {
               <input type="number" min="1" max="9999" step="1" value={tableNumber} onChange={(event) => { setTableNumber(event.target.value); setQuotedBill(null); }} />
             </div>
             <div className="form-group"><label>Desconto</label><div className="cash-payment-part"><select value={discountType} onChange={(event) => { setDiscountType(event.target.value as "percent" | "fixed"); setQuotedBill(null); }}><option value="percent">Percentual (%)</option><option value="fixed">Valor (R$)</option></select><input type="number" min="0.01" step="0.01" value={discountValue} onChange={(event) => { setDiscountValue(event.target.value); setQuotedBill(null); }} placeholder="Sem desconto, deixe vazio" /></div></div>
-            {discountValue.trim() && Number(discountValue) > 0 && <><div className="form-group"><label>Motivo obrigatório</label><input maxLength={120} value={discountReason} onChange={(event) => { setDiscountReason(event.target.value); setQuotedBill(null); }} /></div><div className="form-group"><label>Código do gerente autorizador</label><input autoComplete="off" maxLength={25} value={supervisorCode} onChange={(event) => { setSupervisorCode(event.target.value.toUpperCase()); setQuotedBill(null); }} placeholder="FUNC-..." /></div><div className="form-group"><label>PIN do gerente</label><input type="password" inputMode="numeric" autoComplete="off" maxLength={8} value={supervisorPin} onChange={(event) => { setSupervisorPin(event.target.value); setQuotedBill(null); }} /></div></>}
+            {discountValue.trim() && Number(discountValue) > 0 && <><div className="form-group"><label>Motivo obrigatório</label><input maxLength={120} value={discountReason} onChange={(event) => { setDiscountReason(event.target.value); setQuotedBill(null); }} /></div><div className="form-group"><label>Código do gerente autorizador</label><input autoComplete="off" maxLength={25} value={supervisorCode} onChange={(event) => { setSupervisorCode(event.target.value.toUpperCase()); setQuotedBill(null); }} placeholder="FUNC-..." /></div><div className="form-group"><label>PIN do gerente</label><input type="password" inputMode="numeric" autoComplete="off" maxLength={8} value={supervisorPin} onChange={(event) => { paymentOperationRef.current = null; setSupervisorPin(event.target.value); setQuotedBill(null); }} /></div></>}
             {!quotedBill ? (
               <button className="secondary-button" type="button" disabled={closingTable} onClick={() => void handleQuoteTable()}>{closingTable ? "Consultando..." : "Conferir conta no servidor"}</button>
             ) : (
