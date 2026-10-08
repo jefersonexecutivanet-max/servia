@@ -47,10 +47,13 @@ async function assertCanCloseRestaurant(db, user, restaurantId) {
   const paidUntil = restaurant.monthlyPaidUntil;
   if (restaurant.status !== "active" || !paidUntil?.toMillis || paidUntil.toMillis() <= Date.now()) fail("permission-denied", "O restaurante não está com o acesso liberado.");
 
-  if (user.uid === restaurantId && String(user.email || "").toLowerCase() === String(restaurant.ownerEmail || "").toLowerCase()) return;
+  if (user.uid === restaurantId && String(user.email || "").toLowerCase() === String(restaurant.ownerEmail || "").toLowerCase()) return { role: "OWNER" };
   const staff = await db.collection("restaurantStaff").doc(user.uid).get();
   const data = staff.data();
-  if (staff.exists && data?.active === true && data.restaurantId === restaurantId && ["MANAGER", "CASHIER"].includes(data.role)) return;
+  if (staff.exists && data?.active === true && data.restaurantId === restaurantId && ["MANAGER", "CASHIER"].includes(data.role)) return { role: data.role };
+  if (staff.exists && data?.active === true && data.restaurantId === restaurantId && data.role === "WAITER" && typeof data.waiterId === "string") {
+    return { role: "WAITER", waiterId: data.waiterId };
+  }
   fail("permission-denied", "Você não tem permissão para fechar esta mesa.");
 }
 
@@ -65,19 +68,27 @@ async function closeTable(data, db, user) {
   const tableNumber = Number(data?.tableNumber);
   if (!Number.isInteger(tableNumber) || tableNumber < 1 || tableNumber > 9999) fail("invalid-argument", "Número da mesa inválido.");
   const paymentMethod = requireMethod(data?.paymentMethod);
-  await assertCanCloseRestaurant(db, user, restaurantId);
+  const actor = await assertCanCloseRestaurant(db, user, restaurantId);
 
   const tableId = `${restaurantId}_${tableNumber}`;
   const tableRef = db.collection("tables").doc(tableId);
   const assignmentRef = db.collection("waiterTables").doc(tableId);
+  const billRequestRef = db.collection("billRequests").doc(`${tableId}_bill`);
   const result = await db.runTransaction(async (transaction) => {
-    const [tableSnapshot, assignmentSnapshot, orderSnapshot, restaurantSnapshot] = await Promise.all([
+    const [tableSnapshot, assignmentSnapshot, orderSnapshot, restaurantSnapshot, billRequestSnapshot] = await Promise.all([
       transaction.get(tableRef),
       transaction.get(assignmentRef),
       transaction.get(db.collection("orders").where("restaurantId", "==", restaurantId).where("tableNumber", "==", tableNumber)),
       transaction.get(db.collection("restaurants").doc(restaurantId)),
+      transaction.get(billRequestRef),
     ]);
     if (!tableSnapshot.exists || tableSnapshot.data().restaurantId !== restaurantId || tableSnapshot.data().number !== tableNumber) fail("not-found", "Mesa não encontrada neste restaurante.");
+    if (actor.role === "WAITER" && (!assignmentSnapshot.exists
+      || assignmentSnapshot.data().restaurantId !== restaurantId
+      || assignmentSnapshot.data().tableNumber !== tableNumber
+      || assignmentSnapshot.data().waiterId !== actor.waiterId)) {
+      fail("permission-denied", "Você só pode fechar mesas atribuídas ao seu atendimento.");
+    }
     const activeOrders = orderSnapshot.docs.filter((snapshot) => {
       const value = snapshot.data();
       return value.status !== "cancelado" && value.paymentStatus !== "paid";
@@ -121,6 +132,13 @@ async function closeTable(data, db, user) {
     for (const snapshot of activeOrders) transaction.update(snapshot.ref, { paymentStatus: "paid", paymentId: paymentRef.id, paidAt: FieldValue.serverTimestamp() });
     transaction.update(tableRef, { status: "livre", guests: 0, total: 0, customer: FieldValue.delete() });
     if (assignmentSnapshot.exists) transaction.delete(assignmentRef);
+    if (billRequestSnapshot.exists && billRequestSnapshot.data().status !== "completed") {
+      transaction.update(billRequestRef, {
+        status: "completed",
+        completedAt: FieldValue.serverTimestamp(),
+        attendedBy: user.name || user.email || "Equipe",
+      });
+    }
 
     return {
       paymentId: paymentRef.id,

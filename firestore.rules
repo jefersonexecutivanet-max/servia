@@ -460,6 +460,7 @@ service cloud.firestore {
         || isCashier(resource.data.restaurantId)
         || isKitchen(resource.data.restaurantId)
         || isWaiterFor(resource.data.waiterId)
+        || isWaiterAssignedToTable(resource.data.restaurantId, resource.data.tableId)
         || (signedIn() && ('customerUid' in resource.data) && resource.data.customerUid == request.auth.uid);
       allow update: if orderIsUnpaid() && (
         (isRestaurantManager(resource.data.restaurantId)

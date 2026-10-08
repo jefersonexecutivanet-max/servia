@@ -5,6 +5,7 @@
     { "collectionGroup": "orders", "queryScope": "COLLECTION", "fields": [{ "fieldPath": "restaurantId", "order": "ASCENDING" }, { "fieldPath": "customerUid", "order": "ASCENDING" }, { "fieldPath": "createdAt", "order": "DESCENDING" }] },
     { "collectionGroup": "orders", "queryScope": "COLLECTION", "fields": [{ "fieldPath": "restaurantId", "order": "ASCENDING" }, { "fieldPath": "waiterId", "order": "ASCENDING" }, { "fieldPath": "createdAt", "order": "DESCENDING" }] },
     { "collectionGroup": "orders", "queryScope": "COLLECTION", "fields": [{ "fieldPath": "restaurantId", "order": "ASCENDING" }, { "fieldPath": "tableId", "order": "ASCENDING" }, { "fieldPath": "customerUid", "order": "ASCENDING" }] },
+    { "collectionGroup": "orders", "queryScope": "COLLECTION", "fields": [{ "fieldPath": "restaurantId", "order": "ASCENDING" }, { "fieldPath": "tableId", "order": "ASCENDING" }] },
     { "collectionGroup": "staff", "queryScope": "COLLECTION", "fields": [{ "fieldPath": "restaurantId", "order": "ASCENDING" }, { "fieldPath": "active", "order": "ASCENDING" }] },
     { "collectionGroup": "tableCalls", "queryScope": "COLLECTION", "fields": [{ "fieldPath": "restaurantId", "order": "ASCENDING" }, { "fieldPath": "status", "order": "ASCENDING" }, { "fieldPath": "createdAt", "order": "DESCENDING" }] },
     { "collectionGroup": "tableCalls", "queryScope": "COLLECTION", "fields": [{ "fieldPath": "restaurantId", "order": "ASCENDING" }, { "fieldPath": "waiterId", "order": "ASCENDING" }] },

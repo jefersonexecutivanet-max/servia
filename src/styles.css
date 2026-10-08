@@ -2795,6 +2795,95 @@ input:focus-visible {
   cursor: pointer;
 }
 
+.customer-orders-section {
+  margin: 18px 0 24px;
+  padding: 18px;
+  border: 1px solid #24362c;
+  border-radius: 16px;
+  background: #0d1914;
+}
+
+.customer-orders-heading,
+.customer-order-card > header,
+.customer-order-card > footer,
+.customer-order-card li > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.customer-orders-heading {
+  margin-bottom: 14px;
+}
+
+.customer-orders-heading > div > span {
+  color: var(--green);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.customer-orders-heading h2 {
+  margin: 4px 0 0;
+  font-size: 18px;
+}
+
+.customer-orders-heading > span,
+.customer-order-card > header > span {
+  color: #7e8d87;
+  font-size: 12px;
+}
+
+.customer-orders-list {
+  display: grid;
+  gap: 10px;
+}
+
+.customer-order-card {
+  padding: 14px;
+  border: 1px solid #25332e;
+  border-radius: 12px;
+  background: #101b17;
+}
+
+.customer-order-card > header strong {
+  color: var(--green);
+  font-size: 13px;
+}
+
+.customer-order-card ul {
+  display: grid;
+  gap: 10px;
+  margin: 14px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.customer-order-card li {
+  color: #bac7c2;
+  font-size: 13px;
+}
+
+.customer-order-card li small {
+  display: block;
+  margin-top: 4px;
+  color: #7e8d87;
+  font-size: 11px;
+}
+
+.customer-order-card > footer {
+  padding-top: 10px;
+  border-top: 1px solid #25332e;
+  color: #7e8d87;
+  font-size: 12px;
+}
+
+.customer-order-card > footer strong {
+  color: #e8efeb;
+  font-size: 14px;
+}
+
 .customer-success {
   margin: 40px auto;
   max-width: 550px;
@@ -4947,6 +5036,27 @@ input:focus-visible {
 .waiter-assigned-table > span {
   color: var(--muted);
   font-size: 12px;
+}
+
+.waiter-close-table-button {
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid rgba(165, 229, 107, 0.4);
+  border-radius: 9px;
+  padding: 9px 12px;
+  background: rgba(165, 229, 107, 0.1);
+  color: var(--green);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.waiter-close-table-button:disabled {
+  opacity: 0.6;
+  cursor: wait;
 }
 
 .waiter-ready-orders {

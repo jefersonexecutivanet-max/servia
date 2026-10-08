@@ -30,6 +30,7 @@ import { db } from "../firebase";
 import type { Table, TableStatus } from "../types/table";
 import { formatCurrency } from "../utils/format";
 import { calculateOrderTotal } from "../utils/orders";
+import { paymentApi } from "../utils/employeeApi";
 import { useRestaurantScope } from "../contexts/RestaurantContext";
 import TableTurnoverModule from "./TableTurnoverModule";
 
@@ -50,6 +51,7 @@ type ServiceRequest = {
 
 type TableOrder = {
   id: string;
+  tableId: string;
   tableNumber: number;
   status: string;
   paymentStatus: string;
@@ -101,6 +103,7 @@ function convertTableOrder(
   const data = snapshot.data();
   return {
     id: snapshot.id,
+    tableId: String(data.tableId || ""),
     tableNumber: Number(data.tableNumber || 0),
     status: String(data.status || "novo"),
     paymentStatus: String(data.paymentStatus || "unpaid"),
@@ -150,7 +153,8 @@ export default function WaiterModule({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [updatingId, setUpdatingId] = useState("");
-  const [orders, setOrders] = useState<TableOrder[]>([]);
+  const [waiterOrders, setWaiterOrders] = useState<TableOrder[]>([]);
+  const [assignedOrders, setAssignedOrders] = useState<TableOrder[]>([]);
   const [assignedTables, setAssignedTables] = useState<AssignedTable[]>([]);
   const [tables, setTables] = useState<Table[]>([]);
   const [ordersAccessReady, setOrdersAccessReady] = useState(false);
@@ -456,7 +460,7 @@ export default function WaiterModule({
             }
             readyOrderIdsRef.current = currentReadyOrderIds;
             readyOrdersInitializedRef.current = true;
-            setOrders(newOrders);
+            setWaiterOrders(newOrders);
           },
           (snapshotError) => {
             console.error("Erro ao carregar comandas:", snapshotError);
@@ -465,7 +469,7 @@ export default function WaiterModule({
         )
       : onSnapshot(
           query(collection(db, "orders"), where("restaurantId", "==", restaurantId)),
-          (snapshot) => setOrders(snapshot.docs.map(convertTableOrder)),
+          (snapshot) => setWaiterOrders(snapshot.docs.map(convertTableOrder)),
           (snapshotError) => {
             console.error("Erro ao carregar comandas:", snapshotError);
             setError("Não foi possível carregar as comandas das mesas.");
@@ -480,6 +484,36 @@ export default function WaiterModule({
       unsubscribeOrders();
     };
   }, [restaurantId, waiterId, user.uid, ordersAccessReady]);
+
+  useEffect(() => {
+    setAssignedOrders([]);
+    if (!restaurantId || assignedTables.length === 0) return;
+
+    const tableOrders = new Map<string, TableOrder[]>();
+    const unsubscribers = assignedTables.map((table) => onSnapshot(
+      query(
+        collection(db, "orders"),
+        where("restaurantId", "==", restaurantId),
+        where("tableId", "==", table.id),
+      ),
+      (snapshot) => {
+        tableOrders.set(table.id, snapshot.docs.map(convertTableOrder));
+        setAssignedOrders(Array.from(tableOrders.values()).flat());
+      },
+      (snapshotError) => {
+        console.error("Erro ao carregar os pedidos da mesa atribuída:", snapshotError);
+        setError("Não foi possível carregar os pedidos desta mesa.");
+      },
+    ));
+
+    return () => unsubscribers.forEach((unsubscribe) => unsubscribe());
+  }, [assignedTables, restaurantId]);
+
+  const orders = useMemo(() => {
+    const uniqueOrders = new Map<string, TableOrder>();
+    [...waiterOrders, ...assignedOrders].forEach((order) => uniqueOrders.set(order.id, order));
+    return Array.from(uniqueOrders.values());
+  }, [assignedOrders, waiterOrders]);
 
   const requests = useMemo(
     () =>
@@ -538,6 +572,40 @@ export default function WaiterModule({
     } catch (deliveryError) {
       console.error("Erro ao marcar pedido como entregue:", deliveryError);
       setError("Não foi possível atualizar o pedido. Tente novamente.");
+    } finally {
+      setUpdatingId("");
+    }
+  }
+
+  async function closeAssignedTable(tableNumber: number) {
+    const tableOrders = orders.filter((order) =>
+      order.tableNumber === tableNumber
+      && order.status !== "cancelado"
+      && order.paymentStatus !== "paid",
+    );
+    const subtotal = tableOrders.reduce((sum, order) => sum + order.total, 0);
+    const confirmation = subtotal > 0
+      ? `Fechar a conta da mesa ${tableNumber}? Subtotal: ${formatCurrency(subtotal)}.`
+      : `Fechar a conta da mesa ${tableNumber}? O total será calculado com base nos pedidos em aberto.`;
+    if (!window.confirm(confirmation)) return;
+    const paymentMethod = window.prompt("Informe a forma de pagamento: pix, card ou cash", "pix")?.trim().toLowerCase();
+    if (!paymentMethod || !["pix", "card", "cash"].includes(paymentMethod)) {
+      setError("Forma de pagamento inválida. Use pix, card ou cash.");
+      return;
+    }
+
+    const closingId = `close-${tableNumber}`;
+    setUpdatingId(closingId);
+    setError("");
+    try {
+      const result = await paymentApi<{ amount?: number }>("close", { restaurantId, tableNumber, paymentMethod });
+      const paidAmount = Number(result?.amount);
+      window.alert(paidAmount > 0
+        ? `Conta da mesa ${tableNumber} fechada. Total recebido: ${formatCurrency(paidAmount)}.`
+        : `Conta da mesa ${tableNumber} fechada.`);
+    } catch (closeError) {
+      console.error("Erro ao fechar conta da mesa:", closeError);
+      setError(closeError instanceof Error ? closeError.message : "Não foi possível fechar a conta da mesa.");
     } finally {
       setUpdatingId("");
     }
@@ -680,6 +748,15 @@ export default function WaiterModule({
                       <span>Total: {formatCurrency(tableOrders.reduce((sum, order) => sum + order.total, 0))}</span>
                     </>
                   )}
+                  <button
+                    type="button"
+                    className="waiter-close-table-button"
+                    disabled={Boolean(updatingId)}
+                    onClick={() => void closeAssignedTable(table.tableNumber)}
+                  >
+                    {updatingId === `close-${table.tableNumber}` ? <LoaderCircle className="waiter-loader" size={17} /> : <ReceiptText size={17} />}
+                    Fechar conta
+                  </button>
                 </article>
               );
             })}

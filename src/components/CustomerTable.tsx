@@ -56,6 +56,17 @@ function getCartKey(item: CartItem) {
   return cartItemKey({ productId: item.product.id, extraIds: item.extraIds, notes: item.notes });
 }
 
+function orderStatusLabel(status: string) {
+  const labels: Record<string, string> = {
+    novo: "Recebido",
+    preparando: "Em preparo",
+    pronto: "Pronto",
+    entregue: "Entregue",
+    cancelado: "Cancelado",
+  };
+  return labels[status] || "Em acompanhamento";
+}
+
 export default function CustomerTable({
   tableNumber,
   restaurantId,
@@ -86,7 +97,13 @@ export default function CustomerTable({
   const [selectedWaiterId, setSelectedWaiterId] = useState(assignedWaiterId);
   const [customerUid, setCustomerUid] = useState<string | null>(null);
   const [pendingCall, setPendingCall] = useState(false);
-  const [openOrders, setOpenOrders] = useState<Array<{ id: string; status: string; paymentStatus?: string; items: Array<{ productId: string; name: string; quantity: number; price: number }> }>>([]);
+  const [openOrders, setOpenOrders] = useState<Array<{
+    id: string;
+    status: string;
+    paymentStatus?: string;
+    createdAt?: Date;
+    items: Array<{ productId: string; name: string; quantity: number; price: number; extras?: string[]; notes?: string }>;
+  }>>([]);
 
   const [actionLoading, setActionLoading] = useState<
     "order" | "waiter" | "bill" | "payment" | null
@@ -138,7 +155,13 @@ useEffect(() => {
   useEffect(() => {
     if (!customerUid) return;
     const orders = query(collection(customerDb, "orders"), where("restaurantId", "==", restaurantId), where("tableId", "==", `${tableDocId(restaurantId, tableNumber)}`), where("customerUid", "==", customerUid));
-    return onSnapshot(orders, (snapshot) => setOpenOrders(snapshot.docs.map((item) => ({ id: item.id, status: String(item.data().status || "novo"), paymentStatus: item.data().paymentStatus, items: Array.isArray(item.data().items) ? item.data().items : [] })).filter((order) => order.status !== "cancelado")), (error) => console.error("Erro ao acompanhar pedidos:", error));
+    return onSnapshot(orders, (snapshot) => setOpenOrders(snapshot.docs.map((item) => ({
+      id: item.id,
+      status: String(item.data().status || "novo"),
+      paymentStatus: item.data().paymentStatus,
+      createdAt: item.data().createdAt?.toDate?.(),
+      items: Array.isArray(item.data().items) ? item.data().items : [],
+    })).sort((first, second) => (second.createdAt?.getTime() || 0) - (first.createdAt?.getTime() || 0))), (error) => console.error("Erro ao acompanhar pedidos:", error));
   }, [customerUid, restaurantId, tableNumber]);
 
   useEffect(() => {
@@ -205,8 +228,8 @@ useEffect(() => {
       ),
     [cartItems],
   );
-  const accountTotal = useMemo(() => openOrders.filter((order) => order.paymentStatus !== "paid").reduce((sum, order) => sum + order.items.reduce((lineSum, item) => lineSum + Number(item.quantity || 0) * Number(item.price || 0), 0), 0), [openOrders]);
-  const accountItemCount = useMemo(() => openOrders.filter((order) => order.paymentStatus !== "paid").reduce((sum, order) => sum + order.items.reduce((lineSum, item) => lineSum + Number(item.quantity || 0), 0), 0), [openOrders]);
+  const accountTotal = useMemo(() => openOrders.filter((order) => order.status !== "cancelado" && order.paymentStatus !== "paid").reduce((sum, order) => sum + order.items.reduce((lineSum, item) => lineSum + Number(item.quantity || 0) * Number(item.price || 0), 0), 0), [openOrders]);
+  const accountItemCount = useMemo(() => openOrders.filter((order) => order.status !== "cancelado" && order.paymentStatus !== "paid").reduce((sum, order) => sum + order.items.reduce((lineSum, item) => lineSum + Number(item.quantity || 0), 0), 0), [openOrders]);
 
   function upsertCart(item: CartItem) {
     const key = getCartKey(item);
@@ -508,6 +531,50 @@ try {
               <X size={16} />
             </button>
           </div>
+        )}
+
+        {openOrders.length > 0 && (
+          <section className="customer-orders-section" aria-live="polite" aria-label="Pedidos desta mesa">
+            <div className="customer-orders-heading">
+              <div>
+                <span>ACOMPANHAMENTO</span>
+                <h2>Seus pedidos nesta mesa</h2>
+              </div>
+              <span>{openOrders.length} {openOrders.length === 1 ? "pedido" : "pedidos"}</span>
+            </div>
+            <div className="customer-orders-list">
+              {openOrders.map((order) => {
+                const orderTotal = order.items.reduce(
+                  (sum, item) => sum + Number(item.quantity || 0) * Number(item.price || 0),
+                  0,
+                );
+                return (
+                  <article className="customer-order-card" key={order.id}>
+                    <header>
+                      <strong>{orderStatusLabel(order.status)}</strong>
+                      <span>{order.paymentStatus === "paid" ? "Pago" : "Em aberto"}</span>
+                    </header>
+                    <ul>
+                      {order.items.map((item, index) => (
+                        <li key={`${order.id}-${item.productId}-${index}`}>
+                          <div>
+                            <span>{item.quantity}x {item.name}</span>
+                            <strong>{formatCurrency(Number(item.quantity || 0) * Number(item.price || 0))}</strong>
+                          </div>
+                          {item.extras?.length ? <small>Adicionais: {item.extras.join(", ")}</small> : null}
+                          {item.notes ? <small>Observação: {item.notes}</small> : null}
+                        </li>
+                      ))}
+                    </ul>
+                    <footer>
+                      <span>Total do pedido</span>
+                      <strong>{formatCurrency(orderTotal)}</strong>
+                    </footer>
+                  </article>
+                );
+              })}
+            </div>
+          </section>
         )}
 
         {sent && (
