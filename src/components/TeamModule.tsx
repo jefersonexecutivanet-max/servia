@@ -214,7 +214,7 @@ export default function TeamModule({ readOnly = false }: { readOnly?: boolean })
       setNotice("Acesso do funcionário removido.");
     } catch (deleteError) {
       console.error("Erro ao remover funcionário:", deleteError);
-      setError("Não foi possível remover este funcionário.");
+      setError("Não foi poss?vel remover este funcionário.");
     } finally {
       setBusy(false);
     }
@@ -229,7 +229,7 @@ export default function TeamModule({ readOnly = false }: { readOnly?: boolean })
       setNotice(member.status === "ativo" ? "Acesso desativado." : "Acesso ativado.");
     } catch (statusError) {
       console.error("Erro ao alterar acesso:", statusError);
-      setError("Não foi possível alterar o acesso deste funcionário.");
+      setError("Não foi poss?vel alterar o acesso deste funcionário.");
     } finally {
       setBusy(false);
     }

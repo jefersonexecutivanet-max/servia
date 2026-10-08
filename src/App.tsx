@@ -81,16 +81,16 @@ type ModuleName =
   | "Pedidos"
   | "Atendimento"
   | "Restaurantes"
-  | "Cardápio"
+  | "CardÃ¡pio"
   | "Cozinha"
   | "Estoque"
-  | "Funcionários"
+  | "FuncionÃ¡rios"
   | "Caixa"
-  | "Relatórios"
-  | "Configurações";
+  | "RelatÃ³rios"
+  | "ConfiguraÃ§Ãµes";
 
 /* =========================================================
-   FUNÇÕES AUXILIARES
+   FUNÃ‡Ã•ES AUXILIARES
 ========================================================= */
 
 function getStatusClass(status: string) {
@@ -226,7 +226,7 @@ function LoginScreen({ waiterMode = false, waiterEmail = "", onEmployeeLogin }: 
     setError("");
     try {
       await sendPasswordResetEmail(auth, email.trim().toLowerCase());
-      setNotice("E-mail de recuperação enviado. Verifique sua caixa de entrada.");
+      setNotice("E-mail de recuperaÃ§Ã£o enviado. Verifique sua caixa de entrada.");
       setMode("login");
     } catch (err: unknown) {
       const code =
@@ -235,11 +235,11 @@ function LoginScreen({ waiterMode = false, waiterEmail = "", onEmployeeLogin }: 
           : "";
 
       if (code === "auth/user-not-found") {
-        setError("E-mail não encontrado.");
+        setError("E-mail nÃ£o encontrado.");
       } else if (code === "auth/invalid-email") {
-        setError("E-mail inválido.");
+        setError("E-mail invÃ¡lido.");
       } else {
-        setError("Não foi possível enviar o e-mail de recuperação.");
+        setError("NÃ£o foi possÃ­vel enviar o e-mail de recuperaÃ§Ã£o.");
       }
     } finally {
       setLoading(false);
@@ -301,27 +301,27 @@ function LoginScreen({ waiterMode = false, waiterEmail = "", onEmployeeLogin }: 
         code === "auth/wrong-password" ||
         code === "auth/user-not-found"
       ) {
-        setError(waiterMode ? "Senha temporária ou atual incorreta." : "E-mail ou senha incorretos.");
+        setError(waiterMode ? "Senha temporÃ¡ria ou atual incorreta." : "E-mail ou senha incorretos.");
       } else if (code === "auth/email-already-in-use") {
         if (waiterMode && mode === "register") {
           setMode("login");
-          setError("Este e-mail já tem uma conta. Entre com a senha que você criou.");
+          setError("Este e-mail jÃ¡ tem uma conta. Entre com a senha que vocÃª criou.");
         } else {
-          setError("Este e-mail já está cadastrado.");
+          setError("Este e-mail jÃ¡ estÃ¡ cadastrado.");
         }
       } else if (code === "auth/weak-password") {
         setError(
           "A senha precisa ter pelo menos 6 caracteres.",
         );
       } else if (code === "auth/invalid-email") {
-        setError("Digite um e-mail válido.");
+        setError("Digite um e-mail vÃ¡lido.");
       } else if (code === "auth/network-request-failed") {
         setError(
-          "Não foi possível conectar ao Firebase. Verifique sua internet.",
+          "NÃ£o foi possÃ­vel conectar ao Firebase. Verifique sua internet.",
         );
       } else {
         setError(
-          "Não foi possível realizar a operação. Tente novamente.",
+          "NÃ£o foi possÃ­vel realizar a operaÃ§Ã£o. Tente novamente.",
         );
       }
     } finally {
@@ -342,7 +342,7 @@ function LoginScreen({ waiterMode = false, waiterEmail = "", onEmployeeLogin }: 
 
           <div>
             <strong>Servia</strong>
-            <span>Sistema de gestão para restaurantes</span>
+            <span>Sistema de gestÃ£o para restaurantes</span>
           </div>
         </div>
 
@@ -366,8 +366,8 @@ function LoginScreen({ waiterMode = false, waiterEmail = "", onEmployeeLogin }: 
               <p>
                 {waiterMode
                   ? mode === "reset"
-                    ? "Enviaremos um link de recuperação para o e-mail cadastrado pelo gestor."
-                    : "Entre com a senha temporária fornecida pelo gestor. No primeiro acesso, você vai criar sua senha pessoal."
+                    ? "Enviaremos um link de recuperaÃ§Ã£o para o e-mail cadastrado pelo gestor."
+                    : "Entre com a senha temporÃ¡ria fornecida pelo gestor. No primeiro acesso, vocÃª vai criar sua senha pessoal."
                   : mode === "login"
                     ? "Entre para administrar seu restaurante."
                     : "Comece a gerenciar seu restaurante com o Servia."}
@@ -428,10 +428,10 @@ function LoginScreen({ waiterMode = false, waiterEmail = "", onEmployeeLogin }: 
             )}
 
             <div className="form-field">
-              <label>{waiterMode ? "Senha temporária ou atual" : "Senha"}</label>
+              <label>{waiterMode ? "Senha temporÃ¡ria ou atual" : "Senha"}</label>
 
               <div className="input-wrapper">
-                <span className="password-dot">•••</span>
+                <span className="password-dot">â€¢â€¢â€¢</span>
 
                 <input
                   id="account-password"
@@ -483,7 +483,7 @@ function LoginScreen({ waiterMode = false, waiterEmail = "", onEmployeeLogin }: 
           {mode === "reset" && (
             <div className="password-reset-form">
               <h3>Recuperar Senha</h3>
-              <p>Digite seu e-mail para receber um link de redefinição de senha.</p>
+              <p>Digite seu e-mail para receber um link de redefiniÃ§Ã£o de senha.</p>
               
               {!waiterMode && <div className="form-field">
                 <label>E-mail</label>
@@ -507,7 +507,7 @@ function LoginScreen({ waiterMode = false, waiterEmail = "", onEmployeeLogin }: 
                 onClick={handlePasswordReset}
                 disabled={loading}
               >
-                {loading ? "Enviando..." : "Enviar E-mail de Recuperação"}
+                {loading ? "Enviando..." : "Enviar E-mail de RecuperaÃ§Ã£o"}
               </button>
 
               <button
@@ -529,7 +529,7 @@ function LoginScreen({ waiterMode = false, waiterEmail = "", onEmployeeLogin }: 
               <span>
                 {mode === "login"
                   ? (waiterMode ? "Problemas para entrar?" : "Esqueceu sua senha?")
-                  : "Já possui uma conta?"}
+                  : "JÃ¡ possui uma conta?"}
               </span>
 
               <button
@@ -552,8 +552,8 @@ function LoginScreen({ waiterMode = false, waiterEmail = "", onEmployeeLogin }: 
 
         <div className="login-footer">
           <span>Servia</span>
-          <span>•</span>
-          <span>Gestão inteligente para restaurantes</span>
+          <span>â€¢</span>
+          <span>GestÃ£o inteligente para restaurantes</span>
         </div>
       </div>
     </div>
@@ -598,7 +598,7 @@ function Sidebar({
       icon: Store,
     },
     {
-      label: "Relatórios",
+      label: "RelatÃ³rios",
       icon: BarChart3,
     },
   ] : [
@@ -619,7 +619,7 @@ function Sidebar({
       icon: BellRing,
     },
     {
-      label: "Cardápio",
+      label: "CardÃ¡pio",
       icon: BookOpen,
     },
     {
@@ -637,7 +637,7 @@ function Sidebar({
       icon: Box,
     },
     {
-      label: "Funcionários",
+      label: "FuncionÃ¡rios",
       icon: Users,
     },
     {
@@ -645,7 +645,7 @@ function Sidebar({
       icon: CircleDollarSign,
     },
     {
-      label: "Relatórios",
+      label: "RelatÃ³rios",
       icon: BarChart3,
     },
   ];
@@ -667,7 +667,7 @@ function Sidebar({
     icon: ElementType;
   }[] = systemAdmin || staffRole === "KITCHEN" || staffRole === "CASHIER" || staffRole === "FLOOR_MANAGER" ? [] : [
     {
-      label: "Configurações",
+      label: "ConfiguraÃ§Ãµes",
       icon: Settings,
     },
   ];
@@ -741,7 +741,7 @@ function Sidebar({
           <div className="sidebar-section">
             {!collapsed && (
               <span className="sidebar-section-title">
-                {systemAdmin ? "GESTÃO FINANCEIRA" : "PRINCIPAL"}
+                {systemAdmin ? "GESTÃƒO FINANCEIRA" : "PRINCIPAL"}
               </span>
             )}
 
@@ -752,7 +752,7 @@ function Sidebar({
             <div className="sidebar-section">
               {!collapsed && (
                 <span className="sidebar-section-title">
-                  GESTÃO
+                  GESTÃƒO
                 </span>
               )}
 
@@ -869,7 +869,7 @@ function Topbar({
         </div>
         <button
           className="notification-button"
-          title="Notificações"
+          title="NotificaÃ§Ãµes"
         >
           <Bell size={18} />
           <span className="notification-dot" />
@@ -923,25 +923,11 @@ function DashboardContent({
   const [dashboardOrders, setDashboardOrders] = useState<any[]>([]);
   const [dashboardPayments, setDashboardPayments] = useState<any[]>([]);
   const [dashboardTables, setDashboardTables] = useState<any[]>([]);
-  const [systemSummary, setSystemSummary] = useState<{
-    restaurantCount: number; activeRestaurantCount: number; pendingRestaurantCount: number; staffCount: number;
-    revenueThisMonthCents: number; pendingCents: number;
-    recentPayments: Array<{ amountCents: number; createdAt: number; restaurantName: string; kind: string }>;
-  } | null>(null);
   useEffect(() => {
     setDashboardOrders([]);
     setDashboardPayments([]);
     setDashboardTables([]);
-    if (systemAdmin) {
-      let active = true;
-      const loadSummary = () => employeeApi<typeof systemSummary>("system-summary", {}).then((summary) => {
-        if (active) setSystemSummary(summary);
-      }).catch((error) => console.error("Erro ao carregar o resumo financeiro do Servia:", error));
-      void loadSummary();
-      const interval = window.setInterval(() => void loadSummary(), 60_000);
-      return () => { active = false; window.clearInterval(interval); };
-    }
-    if (!restaurantId) {
+    if (!restaurantId || systemAdmin) {
       return;
     }
     const stopOrders = onSnapshot(query(collection(db, "orders"), where("restaurantId", "==", restaurantId)), (snapshot) => {
@@ -958,19 +944,19 @@ function DashboardContent({
   }, [restaurantId, systemAdmin]);
 
   if (systemAdmin) {
-    // Dashboard de gestão financeira para administrador
+    // Dashboard de gestÃ£o financeira para administrador
     return (
       <div className="dashboard-page">
         <div className="dashboard-heading">
           <div>
             <span className="eyebrow">
-              GESTÃO FINANCEIRA
+              GESTÃƒO FINANCEIRA
             </span>
 
             <h1>Bom dia, administrador.</h1>
 
             <p>
-              Visão geral financeira dos restaurantes cadastrados no Servia.
+              VisÃ£o geral financeira dos restaurantes cadastrados no Servia.
             </p>
           </div>
 
@@ -999,7 +985,7 @@ function DashboardContent({
             <div>
               <span>Receita Mensal</span>
 
-              <strong>{formatCurrency((systemSummary?.revenueThisMonthCents || 0) / 100)}</strong>
+              <strong>R$ 0,00</strong>
             </div>
           </div>
 
@@ -1011,7 +997,7 @@ function DashboardContent({
             <div>
               <span>Restaurantes Ativos</span>
 
-              <strong>{systemSummary?.activeRestaurantCount ?? "—"}</strong>
+              <strong>0</strong>
             </div>
           </div>
 
@@ -1023,10 +1009,10 @@ function DashboardContent({
             <div>
               <span>Pagamentos Pendentes</span>
 
-              <strong>{formatCurrency((systemSummary?.pendingCents || 0) / 100)}</strong>
+              <strong>R$ 0,00</strong>
 
               <small className="neutral">
-                {systemSummary ? `${systemSummary.pendingRestaurantCount} aguardando confirmação` : "Carregando dados"}
+                5 aguardando confirmaÃ§Ã£o
               </small>
             </div>
           </div>
@@ -1037,12 +1023,12 @@ function DashboardContent({
             </div>
 
             <div>
-              <span>Total de Usuários</span>
+              <span>Total de UsuÃ¡rios</span>
 
-              <strong>{systemSummary?.staffCount ?? "—"}</strong>
+              <strong>0</strong>
 
               <small className="positive">
-                {systemSummary ? `${systemSummary.restaurantCount} estabelecimentos cadastrados` : "Carregando dados"}
+                +12 novos usuÃ¡rios
               </small>
             </div>
           </div>
@@ -1052,8 +1038,8 @@ function DashboardContent({
           <div className="dashboard-card">
             <div className="card-header">
               <div>
-                <h3>Ações Rápidas</h3>
-                <p>Gerencie seus restaurantes e finanças</p>
+                <h3>AÃ§Ãµes RÃ¡pidas</h3>
+                <p>Gerencie seus restaurantes e finanÃ§as</p>
               </div>
             </div>
 
@@ -1069,11 +1055,11 @@ function DashboardContent({
 
               <button
                 className="dashboard-action-btn"
-                onClick={() => setActive("Relatórios")}
+                onClick={() => setActive("RelatÃ³rios")}
               >
                 <BarChart3 size={24} />
-                <span>Relatórios Financeiros</span>
-                <small>Análise de receitas e despesas</small>
+                <span>RelatÃ³rios Financeiros</span>
+                <small>AnÃ¡lise de receitas e despesas</small>
               </button>
             </div>
           </div>
@@ -1081,18 +1067,13 @@ function DashboardContent({
           <div className="dashboard-card">
             <div className="card-header">
               <div>
-                <h3>Últimos Pagamentos</h3>
+                <h3>Ãšltimos Pagamentos</h3>
                 <p>Restaurantes que pagaram recentemente</p>
               </div>
             </div>
 
             <div className="payment-list">
-              {!systemSummary?.recentPayments.length ? <div className="empty-state">Nenhum pagamento registrado.</div> : systemSummary.recentPayments.map((payment, index) => (
-                <div className="payment-item" key={`${payment.createdAt}-${index}`}>
-                  <div><strong>{payment.restaurantName}</strong><small>{payment.kind === "setup_and_monthly" ? "Implantação + mensalidade" : payment.kind === "maintenance" ? "Manutenção" : "Mensalidade"} · {payment.createdAt ? new Date(payment.createdAt).toLocaleDateString("pt-BR") : ""}</small></div>
-                  <strong>{formatCurrency(payment.amountCents / 100)}</strong>
-                </div>
-              ))}
+              <div className="empty-state">Nenhum pagamento registrado.</div>
             </div>
           </div>
         </div>
@@ -1125,13 +1106,13 @@ function DashboardContent({
       <div className="dashboard-heading">
         <div>
           <span className="eyebrow">
-            VISÃO GERAL
+            VISÃƒO GERAL
           </span>
 
           <h1>Bom dia, administrador.</h1>
 
           <p>
-            Aqui está o resumo da operação do seu
+            Aqui estÃ¡ o resumo da operaÃ§Ã£o do seu
             restaurante.
           </p>
         </div>
@@ -1164,7 +1145,7 @@ function DashboardContent({
             <strong>{formatCurrency(salesToday)}</strong>
 
             <small className="neutral">
-              {completedToday.length} venda(s) concluída(s)
+              {completedToday.length} venda(s) concluÃ­da(s)
             </small>
           </div>
         </div>
@@ -1198,7 +1179,7 @@ function DashboardContent({
             </strong>
 
             <small>
-              {free} livres · {reserved} reservadas
+              {free} livres Â· {reserved} reservadas
             </small>
           </div>
         </div>
@@ -1214,7 +1195,7 @@ function DashboardContent({
             <strong>{openOrders.length}</strong>
 
             <small>
-              {formatCurrency(openTablesTotal)} em pedidos não pagos
+              {formatCurrency(openTablesTotal)} em pedidos nÃ£o pagos
             </small>
           </div>
         </div>
@@ -1227,7 +1208,7 @@ function DashboardContent({
               <h2>Mapa das mesas</h2>
 
               <p>
-                Acompanhe o salão em tempo real.
+                Acompanhe o salÃ£o em tempo real.
               </p>
             </div>
 
@@ -1244,7 +1225,7 @@ function DashboardContent({
             {dashboardTablesView.length === 0 ? (
               <div className="empty-state">
                 <strong>Nenhuma mesa cadastrada</strong>
-                <p>Cadastre mesas no módulo Mesas para visualizar o mapa.</p>
+                <p>Cadastre mesas no mÃ³dulo Mesas para visualizar o mapa.</p>
               </div>
             ) : (
               dashboardTablesView.map((table) => (
@@ -1279,7 +1260,7 @@ function DashboardContent({
                     )}
 
                     {table.status === "livre" && (
-                      <span>Disponível</span>
+                      <span>DisponÃ­vel</span>
                     )}
 
                     {table.status === "reservada" && (
@@ -1306,7 +1287,7 @@ function DashboardContent({
               <h2>Pedidos recentes</h2>
 
               <p>
-                Últimas movimentações.
+                Ãšltimas movimentaÃ§Ãµes.
               </p>
             </div>
 
@@ -1325,7 +1306,7 @@ function DashboardContent({
             {dashboardOrders.length === 0 ? (
               <div className="empty-state">
                 <strong>Nenhum pedido registrado</strong>
-                <p>Os pedidos aparecerão aqui quando forem criados.</p>
+                <p>Os pedidos aparecerÃ£o aqui quando forem criados.</p>
               </div>
             ) : (
               dashboardOrders.map((order) => (
@@ -1339,7 +1320,7 @@ function DashboardContent({
 
                   <div className="order-main">
                     <strong>
-                      Mesa {order.tableNumber} ·{" "}
+                      Mesa {order.tableNumber} Â·{" "}
                       {order.items[0]?.name || "Cliente"}
                     </strong>
 
@@ -1373,10 +1354,10 @@ function DashboardContent({
       <div className="quick-actions-panel">
         <div className="panel-heading">
           <div>
-            <h2>Ações rápidas</h2>
+            <h2>AÃ§Ãµes rÃ¡pidas</h2>
 
             <p>
-              Acesse as principais funções.
+              Acesse as principais funÃ§Ãµes.
             </p>
           </div>
         </div>
@@ -1390,7 +1371,7 @@ function DashboardContent({
             <span>Mapa de mesas</span>
 
             <small>
-              QR Code · Tap · Comanda
+              QR Code Â· Tap Â· Comanda
             </small>
           </button>
 
@@ -1410,12 +1391,12 @@ function DashboardContent({
 
           <button
             onClick={() =>
-              setActive("Cardápio")
+              setActive("CardÃ¡pio")
             }
           >
             <BookOpen size={20} />
 
-            <span>Editar cardápio</span>
+            <span>Editar cardÃ¡pio</span>
 
             <small>
               Produtos e categorias
@@ -1440,7 +1421,7 @@ function DashboardContent({
 }
 
 /* =========================================================
-   MÓDULOS
+   MÃ“DULOS
 ========================================================= */
 
 function ModulePage({
@@ -1458,7 +1439,7 @@ function ModulePage({
     Dashboard: {
       icon: LayoutDashboard,
       description:
-        "Visão geral do restaurante.",
+        "VisÃ£o geral do restaurante.",
     },
 
     Mesas: {
@@ -1468,7 +1449,7 @@ function ModulePage({
 
     "Giro de Mesa": {
       icon: Timer,
-      description: "Otimização de tempo de mesa.",
+      description: "OtimizaÃ§Ã£o de tempo de mesa.",
     },
 
     Pedidos: {
@@ -1482,7 +1463,7 @@ function ModulePage({
       description: "Chamados e pedidos de conta das mesas.",
     },
 
-    ["Cardápio"]: {
+    ["CardÃ¡pio"]: {
       icon: BookOpen,
       description:
         "Produtos e categorias.",
@@ -1491,7 +1472,7 @@ function ModulePage({
     Cozinha: {
       icon: ChefHat,
       description:
-        "Operação da cozinha.",
+        "OperaÃ§Ã£o da cozinha.",
     },
 
     Estoque: {
@@ -1500,10 +1481,10 @@ function ModulePage({
         "Controle de estoque.",
     },
 
-    ["Funcionários"]: {
+    ["FuncionÃ¡rios"]: {
       icon: Users,
       description:
-        "Cadastre funcionários e gerencie os acessos por QR code.",
+        "Cadastre funcionÃ¡rios e gerencie os acessos por QR code.",
     },
 
     Caixa: {
@@ -1512,21 +1493,21 @@ function ModulePage({
         "Controle financeiro.",
     },
 
-    ["Relatórios"]: {
+    ["RelatÃ³rios"]: {
       icon: BarChart3,
       description:
-        "Relatórios e indicadores.",
+        "RelatÃ³rios e indicadores.",
     },
 
-    ["Configurações"]: {
+    ["ConfiguraÃ§Ãµes"]: {
       icon: Settings,
       description:
-        "Configurações do restaurante.",
+        "ConfiguraÃ§Ãµes do restaurante.",
     },
 
     Restaurantes: {
       icon: Store,
-      description: "Cadastro, cobrança e liberação de acesso.",
+      description: "Cadastro, cobranÃ§a e liberaÃ§Ã£o de acesso.",
     },
   };
 
@@ -1539,7 +1520,7 @@ function ModulePage({
       </div>
 
       <span className="eyebrow">
-        MÓDULO SERVIA
+        MÃ“DULO SERVIA
       </span>
 
       <h1>{title}</h1>
@@ -1554,7 +1535,7 @@ function ModulePage({
 }
 
 /* =========================================================
-   APLICAÇÃO ADMINISTRATIVA
+   APLICAÃ‡ÃƒO ADMINISTRATIVA
 ========================================================= */
 
 function AdminApplication({
@@ -1634,7 +1615,7 @@ function AdminApplication({
     }
 
     if (active === "Mesas") {
-      return <TablesModule canCloseAccounts={staffRole === "CASHIER"} />;
+      return <TablesModule />;
     }
 
     if (active === "Giro de Mesa") {
@@ -1649,7 +1630,7 @@ function AdminApplication({
       return <WaiterModule user={user} showTurnover={staffRole !== "FLOOR_MANAGER"} />;
     }
 
-    if (active === "Cardápio") {
+    if (active === "CardÃ¡pio") {
       return <MenuModule />;
     }
 
@@ -1657,7 +1638,7 @@ function AdminApplication({
       return <KitchenModule />;
     }
 
-    if (active === "Configurações") {
+    if (active === "ConfiguraÃ§Ãµes") {
       return <SettingsModule />;
     }
 
@@ -1665,7 +1646,7 @@ function AdminApplication({
       return <StockModule />;
     }
 
-    if (active === "Funcionários") {
+    if (active === "FuncionÃ¡rios") {
       return <TeamModule />;
     }
 
@@ -1673,7 +1654,7 @@ function AdminApplication({
       return <CashModule />;
     }
 
-    if (active === "Relatórios") {
+    if (active === "RelatÃ³rios") {
       return <ReportsModule />;
     }
 
@@ -1790,7 +1771,7 @@ function WaiterPortal({ user, waiterId, restaurantId }: { user: User; waiterId: 
       <header className="waiter-mobile-header">
         <div>
           <strong>Servia</strong>
-          <span>{user.displayName || "Atendimento do salão"}</span>
+          <span>{user.displayName || "Atendimento do salÃ£o"}</span>
         </div>
         <ConnectionStatus />
         <button type="button" onClick={() => { setPinMessage(""); setShowPinChange(true); }} aria-label="Alterar PIN" title="Alterar PIN">
@@ -1841,9 +1822,9 @@ function EmailVerificationPage({ user }: { user: User }) {
     setBusy(true);
     try {
       await sendEmailVerification(user);
-      setMessage("Enviamos um novo e-mail de confirmação.");
+      setMessage("Enviamos um novo e-mail de confirmaÃ§Ã£o.");
     } catch {
-      setMessage("Não foi possível enviar o e-mail agora.");
+      setMessage("NÃ£o foi possÃ­vel enviar o e-mail agora.");
     } finally {
       setBusy(false);
     }
@@ -1873,10 +1854,10 @@ function EmailVerificationPage({ user }: { user: User }) {
           </div>
           {message && <div className="login-notice" role="status">{message}</div>}
           <button className="login-submit" type="button" disabled={busy} onClick={() => void resendEmail()}>
-            Reenviar confirmação
+            Reenviar confirmaÃ§Ã£o
           </button>
           <button className="login-secondary-action" type="button" disabled={busy} onClick={() => void checkVerification()}>
-            Já confirmei
+            JÃ¡ confirmei
           </button>
           <button className="login-switch-button" type="button" onClick={() => void signOut(auth)}>
             Sair
@@ -1891,7 +1872,7 @@ function RestrictedAccessPage({ message }: { message: string }) {
   return (
     <div className="loading-screen">
       <div className="loading-logo"><UtensilsCrossed size={26} /></div>
-      <strong>Acesso não autorizado</strong>
+      <strong>Acesso nÃ£o autorizado</strong>
       <span>{message}</span>
       <button className="secondary-button" type="button" onClick={() => void signOut(auth)}>
         Sair
@@ -1918,7 +1899,7 @@ function WaiterPasswordChange({ user, waiterId, onComplete }: {
       return;
     }
     if (password !== confirmation) {
-      setError("As senhas não são iguais.");
+      setError("As senhas nÃ£o sÃ£o iguais.");
       return;
     }
 
@@ -1928,8 +1909,8 @@ function WaiterPasswordChange({ user, waiterId, onComplete }: {
       await updateDoc(doc(db, "waiters", waiterId), { mustChangePassword: false });
       onComplete();
     } catch (changeError) {
-      console.error("Não foi possível alterar a senha temporária:", changeError);
-      setError("Não foi possível atualizar sua senha. Entre novamente com a senha temporária e tente outra vez.");
+      console.error("NÃ£o foi possÃ­vel alterar a senha temporÃ¡ria:", changeError);
+      setError("NÃ£o foi possÃ­vel atualizar sua senha. Entre novamente com a senha temporÃ¡ria e tente outra vez.");
     } finally {
       setBusy(false);
     }
@@ -1943,14 +1924,14 @@ function WaiterPasswordChange({ user, waiterId, onComplete }: {
             <div className="login-card-icon"><UserRound size={22} /></div>
             <div>
               <h1>Crie sua senha pessoal</h1>
-              <p>A senha temporária do gestor só pode ser usada neste primeiro acesso.</p>
+              <p>A senha temporÃ¡ria do gestor sÃ³ pode ser usada neste primeiro acesso.</p>
             </div>
           </div>
           <form onSubmit={handleSubmit}>
             <div className="form-field">
               <label>Nova senha</label>
               <div className="input-wrapper">
-                <input id="new-password" name="newPassword" type="password" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} required minLength={6} placeholder="Mínimo de 6 caracteres" />
+                <input id="new-password" name="newPassword" type="password" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} required minLength={6} placeholder="MÃ­nimo de 6 caracteres" />
               </div>
             </div>
             <div className="form-field">
@@ -2111,7 +2092,7 @@ export default function App() {
                     : resolvedRole === "WAITER" ? "waiter" : "staff");
                 } else {
                   setWaiterId("");
-                  setAccessMessage("Não encontramos um cadastro ativo para esta conta. Abra o QR individual enviado pelo administrador.");
+                  setAccessMessage("NÃ£o encontramos um cadastro ativo para esta conta. Abra o QR individual enviado pelo administrador.");
                   setAccess("blocked");
                 }
               }
@@ -2124,8 +2105,8 @@ export default function App() {
                 : "";
               setAccessMessage(
                 errorCode === "permission-denied"
-                  ? "Não foi possível vincular o acesso. Confira se o QR pertence ao seu cadastro ativo."
-                  : "Não foi possível validar esta conta no Firebase. Confira a conexão e tente novamente.",
+                  ? "NÃ£o foi possÃ­vel vincular o acesso. Confira se o QR pertence ao seu cadastro ativo."
+                  : "NÃ£o foi possÃ­vel validar esta conta no Firebase. Confira a conexÃ£o e tente novamente.",
               );
               setAccess("blocked");
             }
@@ -2145,7 +2126,7 @@ export default function App() {
       return;
     }
 
-    // Não verificar pagamento se for o admin
+    // NÃ£o verificar pagamento se for o admin
     if (isSystemOwner(user)) {
       return;
     }
@@ -2167,10 +2148,10 @@ export default function App() {
         return;
       }
 
-      // Se estava pending e agora é válido, mudar para restaurant
+      // Se estava pending e agora Ã© vÃ¡lido, mudar para restaurant
       if (valid) {
         setAccess("restaurant");
-        // Forçar re-renderização imediata
+        // ForÃ§ar re-renderizaÃ§Ã£o imediata
         setTimeout(() => setAccess("restaurant"), 0);
       }
 
@@ -2180,9 +2161,9 @@ export default function App() {
         setAccess("restaurant-pending");
       }, Math.max(0, paidUntil.getTime() - Date.now()));
     }, (snapshotError) => {
-      console.error("Não foi possível acompanhar o estado da assinatura:", snapshotError);
+      console.error("NÃ£o foi possÃ­vel acompanhar o estado da assinatura:", snapshotError);
       if (snapshotError.code === "permission-denied") {
-        setAccessMessage("Sua conta não tem acesso ao estado de assinatura deste restaurante.");
+        setAccessMessage("Sua conta nÃ£o tem acesso ao estado de assinatura deste restaurante.");
       }
     });
 
@@ -2198,10 +2179,10 @@ export default function App() {
    * /mesa/5
    * /mesa/05
    *
-   * são rotas públicas usadas pelo QR Code
+   * sÃ£o rotas pÃºblicas usadas pelo QR Code
    * e pelo NFC/Tap.
    *
-   * Elas não exigem login administrativo.
+   * Elas nÃ£o exigem login administrativo.
    */
 
   const tableMatch =
@@ -2274,7 +2255,7 @@ export default function App() {
       <div className="loading-screen restaurant-payment-gate">
         <div className="loading-logo"><CircleDollarSign size={26} /></div>
         <strong>{pendingRestaurantName}</strong>
-        <span>Pagamento Pix pendente de confirmação do administrador.</span>
+        <span>Pagamento Pix pendente de confirmaÃ§Ã£o do administrador.</span>
         <span>Valor para liberar/renovar: {formatCurrency(pendingPaymentAmount)}.</span>
         <strong>Chave Pix: {import.meta.env.VITE_PIX_KEY || "consulte o administrador"}</strong>
         <div className="payment-actions">

@@ -19,13 +19,6 @@ dist-ssr
 !.env.example
 *.local
 firebase-service-account.json
-*service-account*.json
-*firebase-adminsdk*.json
-*.pem
-*.key
-*.p12
-*.pfx
-*.keystore
 
 # TypeScript build info
 *.tsbuildinfo
@@ -44,8 +37,3 @@ firebase-service-account.json
 
 # Deployment
 .vercel
-
-# Playwright output
-/test-results/
-/playwright-report/
-/playwright/.cache/

@@ -11,6 +11,7 @@ import {
   X,
 } from "lucide-react";
 import {
+  Timestamp,
   collection,
   deleteDoc,
   doc,
@@ -19,6 +20,7 @@ import {
   query,
   serverTimestamp,
   setDoc,
+  updateDoc,
 } from "firebase/firestore";
 import {
   createUserWithEmailAndPassword,
@@ -26,7 +28,6 @@ import {
   signOut,
 } from "firebase/auth";
 import { db, auth, restaurantProvisioningAuth } from "../firebase";
-import { employeeApi } from "../utils/employeeApi";
 import { formatCurrency } from "../utils/format";
 
 type RestaurantAccount = {
@@ -55,6 +56,7 @@ const PIX_KEY = import.meta.env.VITE_PIX_KEY || "consulte-o-administrador";
 const SETUP_FEE = 500;
 const MONTHLY_FEE = 100;
 
+const THIRTY_DAYS_IN_MS = 30 * 24 * 60 * 60 * 1000;
 
 const emptyForm: FormState = {
   name: "",
@@ -261,7 +263,14 @@ export default function RestaurantsModule({
     setBusy(true);
     setError("");
     try {
-      await employeeApi("confirm-payment", { restaurantId: restaurant.id, idempotencyKey: crypto.randomUUID() });
+      const thirtyDaysFromNow = Date.now() + THIRTY_DAYS_IN_MS;
+      await updateDoc(doc(db, "restaurants", restaurant.id), {
+        paymentStatus: "paid",
+        status: "active",
+        paidAt: serverTimestamp(),
+        activatedAt: serverTimestamp(),
+        monthlyPaidUntil: Timestamp.fromMillis(thirtyDaysFromNow),
+      });
       setNotice(`Pagamento registrado. ${restaurant.name} está liberado por mais 30 dias.`);
     } catch (paymentError) {
       console.error("Erro ao confirmar pagamento:", paymentError);

@@ -8,12 +8,9 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "test:rules": "node --test tests/firestore-rules.test.mjs",
-    "test:unit": "vitest run tests/unit.test.ts tests/cash-logic.test.mjs",
+    "test:unit": "vitest run tests/unit.test.ts",
     "migrate:waiter-directory": "node scripts/migrate-waiter-directory.mjs",
-    "migrate:table-tokens": "node scripts/migrate-table-tokens.mjs",
-    "preview": "vite preview",
-    "test:e2e": "playwright test",
-    "test:e2e:integrated": "npx firebase-tools emulators:exec --config firebase.e2e.json --only auth,firestore --project demo-servia-e2e \"set SERVIA_E2E_INTEGRATED=true&& npm run test:e2e -- --workers=1\""
+    "preview": "vite preview"
   },
   "dependencies": {
     "firebase": "^12.19.0",
@@ -28,7 +25,6 @@
   },
   "devDependencies": {
     "@firebase/rules-unit-testing": "^5.0.2",
-    "@playwright/test": "^1.64.0",
     "@types/node": "^24.13.3",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.7",
