@@ -154,6 +154,49 @@ useEffect(() => {
 
   useEffect(() => {
     if (!customerUid) return;
+    setOpenOrders([]);
+    if (accessToken) {
+      let disposed = false;
+      let loadingTableOrders = false;
+      let lastReadFailed = false;
+      const refreshTableOrders = async () => {
+        if (disposed || loadingTableOrders) return;
+        loadingTableOrders = true;
+        try {
+          const orders = await orderApi<Array<{
+            id: string;
+            status: string;
+            paymentStatus?: string;
+            createdAt?: number;
+            items: Array<{ productId: string; name: string; quantity: number; price: number; extras?: string[]; notes?: string }>;
+          }>>("table", {
+            restaurantId,
+            tableId: tableDocId(restaurantId, tableNumber),
+            tableNumber,
+            accessToken,
+          }, customerAuth);
+          if (!disposed) {
+            setOpenOrders(orders.map((order) => ({
+              ...order,
+              createdAt: Number.isFinite(order.createdAt) ? new Date(Number(order.createdAt)) : undefined,
+            })).sort((first, second) => (second.createdAt?.getTime() || 0) - (first.createdAt?.getTime() || 0)));
+            lastReadFailed = false;
+          }
+        } catch (readError) {
+          if (!lastReadFailed) console.error("Erro ao carregar pedidos desta mesa:", readError);
+          lastReadFailed = true;
+        } finally {
+          loadingTableOrders = false;
+        }
+      };
+      void refreshTableOrders();
+      const interval = window.setInterval(() => void refreshTableOrders(), 5000);
+      return () => {
+        disposed = true;
+        window.clearInterval(interval);
+      };
+    }
+
     const orders = query(collection(customerDb, "orders"), where("restaurantId", "==", restaurantId), where("tableId", "==", `${tableDocId(restaurantId, tableNumber)}`), where("customerUid", "==", customerUid));
     return onSnapshot(orders, (snapshot) => setOpenOrders(snapshot.docs.map((item) => ({
       id: item.id,
@@ -162,7 +205,7 @@ useEffect(() => {
       createdAt: item.data().createdAt?.toDate?.(),
       items: Array.isArray(item.data().items) ? item.data().items : [],
     })).sort((first, second) => (second.createdAt?.getTime() || 0) - (first.createdAt?.getTime() || 0))), (error) => console.error("Erro ao acompanhar pedidos:", error));
-  }, [customerUid, restaurantId, tableNumber]);
+  }, [accessToken, customerUid, restaurantId, tableNumber]);
 
   useEffect(() => {
     if (!customerUid) return;
@@ -538,7 +581,7 @@ try {
             <div className="customer-orders-heading">
               <div>
                 <span>ACOMPANHAMENTO</span>
-                <h2>Seus pedidos nesta mesa</h2>
+                <h2>Pedidos desta mesa</h2>
               </div>
               <span>{openOrders.length} {openOrders.length === 1 ? "pedido" : "pedidos"}</span>
             </div>

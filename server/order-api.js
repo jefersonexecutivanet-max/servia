@@ -247,7 +247,53 @@ async function createOrder(data, db, user) {
   return { orderId: result.orderId, total: result.total };
 }
 
-const actions = { createOrder };
+async function getTableOrders(data, db) {
+  const restaurantId = requireString(data?.restaurantId, "Restaurante", 128);
+  const tableId = requireString(data?.tableId, "Mesa", 128);
+  const tableNumber = requireInt(data?.tableNumber, "Número da mesa", 1, 9999);
+  const accessToken = data?.accessToken ? requireString(data.accessToken, "Token de acesso", 128) : "";
+
+  const restaurantSnapshot = await db.collection("restaurants").doc(restaurantId).get();
+  if (!restaurantSnapshot.exists) fail("not-found", "Restaurante não encontrado.");
+  await assertRestaurantActive(restaurantId, restaurantSnapshot.data());
+
+  const tableSnapshot = await db.collection("tables").doc(tableId).get();
+  if (!tableSnapshot.exists || tableSnapshot.data().restaurantId !== restaurantId || tableSnapshot.data().number !== tableNumber) {
+    fail("not-found", "Mesa não encontrada neste restaurante.");
+  }
+  const tableData = tableSnapshot.data();
+  if (!tableData.accessToken || !accessToken || accessToken !== tableData.accessToken) {
+    fail("permission-denied", "Token de acesso inválido para esta mesa.");
+  }
+
+  const ordersSnapshot = await db.collection("orders")
+    .where("restaurantId", "==", restaurantId)
+    .where("tableId", "==", tableId)
+    .get();
+  return ordersSnapshot.docs
+    .map((snapshot) => ({ id: snapshot.id, ...snapshot.data() }))
+    .filter((order) => order.status !== "cancelado" && order.paymentStatus !== "paid")
+    .map((order) => ({
+      id: order.id,
+      status: String(order.status || "novo"),
+      paymentStatus: String(order.paymentStatus || "unpaid"),
+      createdAt: order.createdAt?.toMillis?.() || 0,
+      items: Array.isArray(order.items) ? order.items.map((item) => ({
+        productId: String(item.productId || ""),
+        name: String(item.name || "Produto"),
+        quantity: Number(item.quantity || 0),
+        price: Number(item.price || 0),
+        extras: Array.isArray(item.extras) ? item.extras.map(String) : [],
+        notes: String(item.notes || ""),
+      })) : [],
+    }))
+    .filter((order) => order.items.length > 0)
+    .sort((first, second) => second.createdAt - first.createdAt)
+    .slice(0, 100)
+    .map(({ createdAt, ...order }) => ({ ...order, createdAt }));
+}
+
+const actions = { createOrder, getTableOrders };
 
 export default async function orderApi(action, request, response) {
   if (request.method === "OPTIONS") return response.status(204).end();
