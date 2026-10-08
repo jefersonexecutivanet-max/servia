@@ -8,6 +8,7 @@ import {
   setDoc,
   where,
   type DocumentData,
+  type Firestore,
 } from "firebase/firestore";
 import { db } from "../firebase";
 import type { Product, ProductExtra } from "../types/menu";
@@ -65,7 +66,7 @@ function toFirestore(product: Product, restaurantId: string) {
   };
 }
 
-export function useMenuCatalog(restaurantId: string) {
+export function useMenuCatalog(restaurantId: string, catalogDb: Firestore = db) {
   const [products, setProducts] = useState<Product[]>([]);
   const [fromRemote, setFromRemote] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -73,8 +74,8 @@ export function useMenuCatalog(restaurantId: string) {
 
   useEffect(() => {
     const menuQuery = restaurantId
-      ? query(collection(db, "menuItems"), where("restaurantId", "==", restaurantId))
-      : query(collection(db, "menuItems"));
+      ? query(collection(catalogDb, "menuItems"), where("restaurantId", "==", restaurantId))
+      : query(collection(catalogDb, "menuItems"));
     const unsubscribe = onSnapshot(
       menuQuery,
       (snapshot) => {
@@ -105,23 +106,23 @@ export function useMenuCatalog(restaurantId: string) {
     );
 
     return () => unsubscribe();
-  }, [restaurantId]);
+  }, [catalogDb, restaurantId]);
 
   const saveProduct = useCallback(async (product: Product) => {
-    await setDoc(doc(db, "menuItems", `${restaurantId}_${product.id}`), toFirestore(product, restaurantId));
-  }, [restaurantId]);
+    await setDoc(doc(catalogDb, "menuItems", `${restaurantId}_${product.id}`), toFirestore(product, restaurantId));
+  }, [catalogDb, restaurantId]);
 
   const deleteProduct = useCallback(async (productId: string) => {
-    await deleteDoc(doc(db, "menuItems", `${restaurantId}_${productId}`));
-  }, [restaurantId]);
+    await deleteDoc(doc(catalogDb, "menuItems", `${restaurantId}_${productId}`));
+  }, [catalogDb, restaurantId]);
 
   const publishCatalog = useCallback(async (items: Product[]) => {
     await Promise.all(
       items.map((product) =>
-        setDoc(doc(db, "menuItems", `${restaurantId}_${product.id}`), toFirestore(product, restaurantId)),
+        setDoc(doc(catalogDb, "menuItems", `${restaurantId}_${product.id}`), toFirestore(product, restaurantId)),
       ),
     );
-  }, [restaurantId]);
+  }, [catalogDb, restaurantId]);
 
   return {
     products,

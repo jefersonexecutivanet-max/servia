@@ -142,14 +142,22 @@ async function createOrder(data, db, user) {
       fail("not-found", "Mesa não encontrada neste restaurante.");
     }
     const freshTableData = tableSnapshot.data();
-    if (waiterId) {
-      const waiterSnapshot = await transaction.get(db.collection("waiterDirectory").doc(waiterId));
+    const assignmentSnapshot = await transaction.get(db.collection("waiterTables").doc(tableId));
+    let resolvedWaiterId = waiterId;
+    if (assignmentSnapshot.exists) {
+      const assignment = assignmentSnapshot.data();
+      if (assignment.restaurantId !== restaurantId || assignment.tableId !== tableId || !assignment.waiterId) {
+        fail("permission-denied", "A atribuição de garçom desta mesa é inválida.");
+      }
+      if (waiterId && assignment.waiterId !== waiterId) {
+        fail("permission-denied", "O garçom informado não está atribuído a esta mesa.");
+      }
+      resolvedWaiterId ||= assignment.waiterId;
+    }
+    if (resolvedWaiterId) {
+      const waiterSnapshot = await transaction.get(db.collection("waiterDirectory").doc(resolvedWaiterId));
       if (!waiterSnapshot.exists || waiterSnapshot.data().restaurantId !== restaurantId || waiterSnapshot.data().active !== true) {
         fail("invalid-argument", "Garçom inválido para este restaurante.");
-      }
-      const assignmentSnapshot = await transaction.get(db.collection("waiterTables").doc(tableId));
-      if (assignmentSnapshot.exists && assignmentSnapshot.data().waiterId !== waiterId) {
-        fail("permission-denied", "O garçom informado não está atribuído a esta mesa.");
       }
     }
     if (freshTableData.accessToken && (!accessToken || accessToken !== freshTableData.accessToken)) {
@@ -212,7 +220,7 @@ async function createOrder(data, db, user) {
       restaurantId,
       tableId,
       tableNumber,
-      ...(waiterId ? { waiterId } : {}),
+      ...(resolvedWaiterId ? { waiterId: resolvedWaiterId } : {}),
       customerUid: authenticatedUid,
       ...(accessToken ? { accessToken } : {}),
       status: "novo",

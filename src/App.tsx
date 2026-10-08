@@ -598,10 +598,6 @@ function Sidebar({
       icon: Store,
     },
     {
-      label: "Caixa",
-      icon: CircleDollarSign,
-    },
-    {
       label: "RelatÃ³rios",
       icon: BarChart3,
     },
@@ -1055,15 +1051,6 @@ function DashboardContent({
                 <Store size={24} />
                 <span>Cadastrar Restaurante</span>
                 <small>Adicionar novo estabelecimento</small>
-              </button>
-
-              <button
-                className="dashboard-action-btn"
-                onClick={() => setActive("Caixa")}
-              >
-                <CircleDollarSign size={24} />
-                <span>Ver MovimentaÃ§Ãµes</span>
-                <small>Consultar entradas e saÃ­das</small>
               </button>
 
               <button

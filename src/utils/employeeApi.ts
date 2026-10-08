@@ -1,3 +1,4 @@
+import type { Auth } from "firebase/auth";
 import { auth } from "../firebase";
 
 export async function employeeApi<T = unknown>(endpoint: string, payload: unknown, authenticated = true): Promise<T> {
@@ -28,9 +29,9 @@ export async function employeeApi<T = unknown>(endpoint: string, payload: unknow
   return result.data as T;
 }
 
-export async function orderApi<T = unknown>(endpoint: string, payload: unknown): Promise<T> {
+export async function orderApi<T = unknown>(endpoint: string, payload: unknown, authInstance: Auth = auth): Promise<T> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
-  const user = auth.currentUser;
+  const user = authInstance.currentUser;
   if (!user) throw Object.assign(new Error("Entre na sua conta para continuar."), { code: "unauthenticated" });
   headers.Authorization = `Bearer ${await user.getIdToken()}`;
 

@@ -22,21 +22,28 @@ const firebaseConfig = {
 };
 
 const app = initializeApp(firebaseConfig);
+const provisioningApp = initializeApp(firebaseConfig, "restaurant-provisioning");
+const customerApp = initializeApp(firebaseConfig, "customer-session");
 if (import.meta.env.VITE_ENABLE_APP_CHECK === "true" && import.meta.env.VITE_RECAPTCHA_SITE_KEY) {
   initializeAppCheck(app, {
     provider: new ReCaptchaV3Provider(import.meta.env.VITE_RECAPTCHA_SITE_KEY),
     isTokenAutoRefreshEnabled: true,
   });
+  initializeAppCheck(customerApp, {
+    provider: new ReCaptchaV3Provider(import.meta.env.VITE_RECAPTCHA_SITE_KEY),
+    isTokenAutoRefreshEnabled: true,
+  });
 }
-const provisioningApp = initializeApp(firebaseConfig, "restaurant-provisioning");
 
 export const auth = getAuth(app);
 export const restaurantProvisioningAuth = getAuth(provisioningApp);
+export const customerAuth = getAuth(customerApp);
 export const db = initializeFirestore(app, {
   localCache: persistentLocalCache({
     tabManager: persistentMultipleTabManager(),
   }),
 });
+export const customerDb = initializeFirestore(customerApp, {});
 
 setPersistence(auth, browserLocalPersistence).catch((error) => {
   console.error("Erro ao configurar persistência:", error);
@@ -44,4 +51,8 @@ setPersistence(auth, browserLocalPersistence).catch((error) => {
 
 setPersistence(restaurantProvisioningAuth, browserLocalPersistence).catch((error) => {
   console.error("Erro ao configurar cadastro de restaurante:", error);
+});
+
+setPersistence(customerAuth, browserLocalPersistence).catch((error) => {
+  console.error("Erro ao configurar sessão do cliente:", error);
 });

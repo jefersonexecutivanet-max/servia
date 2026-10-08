@@ -20,7 +20,6 @@ import {
   addDoc,
   collection,
   doc,
-  getDoc,
   onSnapshot,
   query,
   serverTimestamp,
@@ -28,7 +27,7 @@ import {
   writeBatch,
 } from "firebase/firestore";
 import { onAuthStateChanged, signInAnonymously } from "firebase/auth";
-import { auth, db } from "../firebase";
+import { customerAuth, customerDb } from "../firebase";
 import { useMenuCatalog } from "../hooks/useMenuCatalog";
 import type { Product } from "../types/menu";
 import { formatCurrency } from "../utils/format";
@@ -66,7 +65,7 @@ export default function CustomerTable({
   restaurantId: string;
   accessToken?: string;
 }) {
-  const { products, loading } = useMenuCatalog(restaurantId);
+  const { products, loading } = useMenuCatalog(restaurantId, customerDb);
   const waiterStorageKey = `servia-table-${restaurantId}-${tableNumber}-waiter`;
 
   const [cart, setCart] = useState<Record<string, CartItem>>({});
@@ -102,9 +101,9 @@ export default function CustomerTable({
   }, [products]);
 
 useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+    const unsubscribe = onAuthStateChanged(customerAuth, async (user) => {
       try {
-        const customer = user?.isAnonymous ? user : (await signInAnonymously(auth)).user;
+        const customer = user?.isAnonymous ? user : (await signInAnonymously(customerAuth)).user;
         if (customer?.uid) {
           setCustomerUid(customer.uid);
         }
@@ -126,19 +125,26 @@ useEffect(() => {
   }, []);
 
   useEffect(() => {
-    const callRef = doc(db, "tableCalls", `${tableDocId(restaurantId, tableNumber)}_waiter`);
-    return onSnapshot(callRef, (snapshot) => setPendingCall(snapshot.exists() && snapshot.data().status === "pending"), (error) => console.error("Erro ao consultar chamados pendentes:", error));
-  }, [restaurantId, tableNumber]);
+    if (!customerUid) return;
+    const pendingCalls = query(
+      collection(customerDb, "tableCalls"),
+      where("customerUid", "==", customerUid),
+      where("tableId", "==", tableDocId(restaurantId, tableNumber)),
+      where("status", "==", "pending"),
+    );
+    return onSnapshot(pendingCalls, (snapshot) => setPendingCall(!snapshot.empty), (error) => console.error("Erro ao consultar chamados pendentes:", error));
+  }, [customerUid, restaurantId, tableNumber]);
 
   useEffect(() => {
     if (!customerUid) return;
-    const orders = query(collection(db, "orders"), where("restaurantId", "==", restaurantId), where("tableId", "==", `${tableDocId(restaurantId, tableNumber)}`), where("customerUid", "==", customerUid));
+    const orders = query(collection(customerDb, "orders"), where("restaurantId", "==", restaurantId), where("tableId", "==", `${tableDocId(restaurantId, tableNumber)}`), where("customerUid", "==", customerUid));
     return onSnapshot(orders, (snapshot) => setOpenOrders(snapshot.docs.map((item) => ({ id: item.id, status: String(item.data().status || "novo"), paymentStatus: item.data().paymentStatus, items: Array.isArray(item.data().items) ? item.data().items : [] })).filter((order) => order.status !== "cancelado")), (error) => console.error("Erro ao acompanhar pedidos:", error));
   }, [customerUid, restaurantId, tableNumber]);
 
   useEffect(() => {
+    if (!customerUid) return;
     const activeWaiters = query(
-      collection(db, "waiterDirectory", restaurantId, "staff"),
+      collection(customerDb, "waiterDirectory", restaurantId, "staff"),
       where("restaurantId", "==", restaurantId),
       where("active", "==", true),
     );
@@ -161,24 +167,7 @@ useEffect(() => {
         setWaiterLoadError("Não foi possível carregar os garçons.");
       },
     );
-  }, [restaurantId]);
-
-  useEffect(() => {
-    const assignmentRef = doc(db, "waiterTables", `${tableDocId(restaurantId, tableNumber)}`);
-    return onSnapshot(
-      assignmentRef,
-      (snapshot) => {
-        const waiterId = String(snapshot.data()?.waiterId || "");
-        setAssignedWaiterId(waiterId);
-        if (waiterId) {
-          localStorage.setItem(waiterStorageKey, waiterId);
-        }
-      },
-      (assignmentError) => {
-        console.error("Erro ao carregar o garçom da mesa:", assignmentError);
-      },
-    );
-  }, [restaurantId, tableNumber, waiterStorageKey]);
+  }, [customerUid, restaurantId]);
 
   const filteredProducts = useMemo(() => {
     if (activeCategory === "Todos") {
@@ -277,18 +266,6 @@ useEffect(() => {
     setMessage("");
 
     try {
-      let currentWaiterId = assignedWaiterId;
-      try {
-        const assignment = await getDoc(
-          doc(db, "waiterTables", `${tableDocId(restaurantId, tableNumber)}`),
-        );
-        currentWaiterId = String(assignment.data()?.waiterId || currentWaiterId);
-      } catch (assignmentError) {
-        console.warn("Usando o garçom salvo neste dispositivo:", assignmentError);
-        currentWaiterId = localStorage.getItem(waiterStorageKey) || currentWaiterId;
-      }
-      setAssignedWaiterId(currentWaiterId);
-
       if (!customerUid) throw new Error("A sessão anônima ainda não está pronta.");
       const orderItems = cartItems.map((item) => ({
           productId: item.product.id,
@@ -303,7 +280,6 @@ useEffect(() => {
         restaurantId,
         tableId: `${tableDocId(restaurantId, tableNumber)}`,
         tableNumber,
-        waiterId: currentWaiterId || "",
         accessToken: accessToken || "",
         items: orderItems,
       });
@@ -315,11 +291,10 @@ useEffect(() => {
         restaurantId,
         tableId: `${tableDocId(restaurantId, tableNumber)}`,
         tableNumber,
-        ...(currentWaiterId ? { waiterId: currentWaiterId } : {}),
         ...(accessToken ? { accessToken } : {}),
         idempotencyKey,
         items: orderItems,
-      });
+      }, customerAuth);
 
       setSent(true);
       setCart({});
@@ -370,8 +345,8 @@ useEffect(() => {
     setMessage("");
 
 try {
-      const batch = writeBatch(db);
-      const requestRef = doc(db, requestCollection, `${tableDocId(restaurantId, tableNumber)}_${requestType}`);
+      const batch = writeBatch(customerDb);
+      const requestRef = doc(customerDb, requestCollection, `${tableDocId(restaurantId, tableNumber)}_${requestType}`);
       if (!customerUid) throw new Error("Sessão do cliente não inicializada.");
       batch.set(requestRef, {
         restaurantId,
@@ -420,7 +395,7 @@ try {
 
     try {
       // Sem integração com gateway, a solicitação não confirma que houve pagamento.
-      await addDoc(collection(db, "tableReleases"), {
+      await addDoc(collection(customerDb, "tableReleases"), {
         restaurantId,
         tableId: `${tableDocId(restaurantId, tableNumber)}`,
         tableNumber,
