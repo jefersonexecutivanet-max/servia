@@ -699,7 +699,7 @@ export default function WaiterModule({
         ) : (
           <>
             <div className="waiter-floor-map">
-              <span className="waiter-floor-entrance">ENTRADA / SALÃƒO</span>
+              <span className="waiter-floor-entrance">ENTRADA / SALÃO</span>
               {waiterMapTables.map((table) => {
                 const statusLabel = table.status === "reservada"
                   ? "Reservada"

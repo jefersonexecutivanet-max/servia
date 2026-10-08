@@ -120,7 +120,8 @@ async function createOrder(data, db, user) {
     fail("not-found", "Mesa não encontrada neste restaurante.");
   }
   const tableData = tableSnapshot.data();
-  if (tableData.accessToken && (!accessToken || accessToken !== tableData.accessToken)) {
+  const requiresTableToken = Boolean(tableData.accessToken) || process.env.REQUIRE_TABLE_ACCESS_TOKENS === "true";
+  if (requiresTableToken && (!tableData.accessToken || !accessToken || accessToken !== tableData.accessToken)) {
     fail("permission-denied", "Token de acesso inválido para esta mesa.");
   }
 
@@ -161,7 +162,8 @@ async function createOrder(data, db, user) {
         fail("invalid-argument", "Garçom inválido para este restaurante.");
       }
     }
-    if (freshTableData.accessToken && (!accessToken || accessToken !== freshTableData.accessToken)) {
+    const requiresFreshTableToken = Boolean(freshTableData.accessToken) || process.env.REQUIRE_TABLE_ACCESS_TOKENS === "true";
+    if (requiresFreshTableToken && (!freshTableData.accessToken || !accessToken || accessToken !== freshTableData.accessToken)) {
       fail("permission-denied", "Token de acesso inválido para esta mesa.");
     }
 

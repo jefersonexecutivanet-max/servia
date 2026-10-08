@@ -3,6 +3,7 @@ import { cartItemKey } from "../src/utils/cart";
 import { calculateOrderTotal, shouldClaimOrderPrint } from "../src/utils/orders";
 import { normalizeStaffRole } from "../src/types/roles";
 import type { Product, ProductExtra } from "../src/types/menu";
+import { aggregateProductSales, expenseDeltaCents, totalExpenseCents } from "../src/utils/reporting";
 
 describe("order and cart helpers", () => {
   it("recalculates totals from item quantity and price", () => {
@@ -126,5 +127,36 @@ describe("order item validation logic", () => {
         t += itemPrice * item.quantity;
       }
     }).toThrow("Produto indisponível");
+  });
+});
+
+describe("reporting paid item and expense ledger calculations", () => {
+  it("counts paid line quantities instead of all ordered quantities", () => {
+    expect(aggregateProductSales([
+      { productId: "burger", name: "Hambúrguer", quantity: 1, unitPriceCents: 2500 },
+      { productId: "burger", name: "Hambúrguer", quantity: 2, unitPriceCents: 2500 },
+      { productId: "fries", name: "Batata", quantity: 1, unitPriceCents: 1000 },
+    ])).toEqual([
+      { name: "Hambúrguer", quantity: 3, revenue: 75 },
+      { name: "Batata", quantity: 1, revenue: 10 },
+    ]);
+  });
+
+  it("nets an expense reversal and excludes a cash withdrawal from expenses", () => {
+    const movements = [
+      { type: "saida", category: "Insumos", amountCents: 5000 },
+      { type: "estorno", reversesType: "saida", category: "Insumos", amountCents: 1200 },
+      { type: "saida", category: "sangria", amountCents: 3000 },
+    ];
+    expect(movements.map(expenseDeltaCents)).toEqual([5000, -1200, 0]);
+    expect(totalExpenseCents(movements)).toBe(3800);
+  });
+
+  it("keeps a partial payment limited to the item quantities actually settled", () => {
+    const sales = aggregateProductSales([
+      { productId: "coffee", name: "Café", quantity: 1, unitPriceCents: 700 },
+    ]);
+    expect(sales).toEqual([{ name: "Café", quantity: 1, revenue: 7 }]);
+    expect(sales[0].quantity).not.toBe(3);
   });
 });

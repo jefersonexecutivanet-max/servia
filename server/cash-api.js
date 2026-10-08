@@ -233,18 +233,18 @@ async function closeSession(data, db, user) {
       const amountCents = Number.isInteger(movement.amountCents) ? movement.amountCents : Math.round(Number(movement.amount || 0) * 100);
       if (movement.paymentMethod !== "dinheiro" && movement.paymentMethod !== "cash") continue;
       if (movement.type === "estorno") {
-        const delta = movement.reversesType === "entrada" ? -amountCents : amountCents;
-        cashMovementsCents += delta;
+        const reversedCashDirection = movement.reversesType === "entrada" ? -1 : 1;
+        cashMovementsCents += reversedCashDirection * amountCents;
         if (movement.category === "suprimento") movementTotals.suprimentoCents -= amountCents;
-        if (movement.category === "sangria") movementTotals.sangriaCents -= amountCents;
-        if (movement.category === "despesa") movementTotals.expenseCents -= amountCents;
+        else if (movement.category === "sangria") movementTotals.sangriaCents -= amountCents;
+        else if (movement.reversesType === "saida") movementTotals.expenseCents -= amountCents;
       } else if (movement.category === "suprimento" || movement.type === "entrada") {
         cashMovementsCents += amountCents;
         if (movement.category === "suprimento") movementTotals.suprimentoCents += amountCents;
       } else if (movement.category === "sangria") {
         cashMovementsCents -= amountCents;
         movementTotals.sangriaCents += amountCents;
-      } else if (movement.category === "despesa" || movement.type === "saida") {
+      } else if (movement.category === "despesa" || movement.type === "saida" || movement.type === "despesa") {
         cashMovementsCents -= amountCents;
         movementTotals.expenseCents += amountCents;
       }

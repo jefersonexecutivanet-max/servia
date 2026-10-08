@@ -431,7 +431,7 @@ function LoginScreen({ waiterMode = false, waiterEmail = "", onEmployeeLogin }: 
               <label>{waiterMode ? "Senha temporÃ¡ria ou atual" : "Senha"}</label>
 
               <div className="input-wrapper">
-                <span className="password-dot">â€¢â€¢â€¢</span>
+                <span className="password-dot">•••</span>
 
                 <input
                   id="account-password"
@@ -552,7 +552,7 @@ function LoginScreen({ waiterMode = false, waiterEmail = "", onEmployeeLogin }: 
 
         <div className="login-footer">
           <span>Servia</span>
-          <span>â€¢</span>
+          <span>•</span>
           <span>GestÃ£o inteligente para restaurantes</span>
         </div>
       </div>
@@ -741,7 +741,7 @@ function Sidebar({
           <div className="sidebar-section">
             {!collapsed && (
               <span className="sidebar-section-title">
-                {systemAdmin ? "GESTÃƒO FINANCEIRA" : "PRINCIPAL"}
+                {systemAdmin ? "GESTÃO FINANCEIRA" : "PRINCIPAL"}
               </span>
             )}
 
@@ -752,7 +752,7 @@ function Sidebar({
             <div className="sidebar-section">
               {!collapsed && (
                 <span className="sidebar-section-title">
-                  GESTÃƒO
+                  GESTÃO
                 </span>
               )}
 
@@ -964,7 +964,7 @@ function DashboardContent({
         <div className="dashboard-heading">
           <div>
             <span className="eyebrow">
-              GESTÃƒO FINANCEIRA
+              GESTÃO FINANCEIRA
             </span>
 
             <h1>Bom dia, administrador.</h1>
@@ -1125,7 +1125,7 @@ function DashboardContent({
       <div className="dashboard-heading">
         <div>
           <span className="eyebrow">
-            VISÃƒO GERAL
+            VISÃO GERAL
           </span>
 
           <h1>Bom dia, administrador.</h1>
@@ -1198,7 +1198,7 @@ function DashboardContent({
             </strong>
 
             <small>
-              {free} livres Â· {reserved} reservadas
+              {free} livres · {reserved} reservadas
             </small>
           </div>
         </div>
@@ -1339,7 +1339,7 @@ function DashboardContent({
 
                   <div className="order-main">
                     <strong>
-                      Mesa {order.tableNumber} Â·{" "}
+                      Mesa {order.tableNumber} ·{" "}
                       {order.items[0]?.name || "Cliente"}
                     </strong>
 
@@ -1390,7 +1390,7 @@ function DashboardContent({
             <span>Mapa de mesas</span>
 
             <small>
-              QR Code Â· Tap Â· Comanda
+              QR Code · Tap · Comanda
             </small>
           </button>
 
@@ -1554,7 +1554,7 @@ function ModulePage({
 }
 
 /* =========================================================
-   APLICAÃ‡ÃƒO ADMINISTRATIVA
+   APLICAÇÃO ADMINISTRATIVA
 ========================================================= */
 
 function AdminApplication({

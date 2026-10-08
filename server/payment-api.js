@@ -5,6 +5,7 @@ import { FieldValue, getFirestore } from "firebase-admin/firestore";
 import security from "./security.cjs";
 import { CashValidationError, calculateDiscount, normalizePaymentParts, toCents } from "./cash-logic.js";
 import { authorizeManagerPin, SupervisorApprovalError } from "./cash-approval.js";
+import { quantityCanBeSettled, splitTransferOrders, unpaidLineQuantity } from "./payment-domain.js";
 
 const { isRequestOriginAllowed } = security;
 
@@ -127,11 +128,6 @@ function requestedItemSelections(data) {
   return new Map(data.itemSelections.map((item) => [`${item.orderId}:${Number(item.lineIndex)}`, Number(item.quantity)]));
 }
 
-function openLineQuantity(order, lineIndex) {
-  const line = order.items[lineIndex];
-  return Number(line.quantity) - Number(order.paidQuantities?.[String(lineIndex)] || 0) - Number(line.cancelledQuantity || 0);
-}
-
 async function quoteTable(data, db, user, request) {
   const restaurantId = requireString(data?.restaurantId, "Restaurante");
   const tableNumber = Number(data?.tableNumber);
@@ -167,7 +163,7 @@ async function quoteTable(data, db, user, request) {
     if (!Array.isArray(order.items)) fail("invalid-argument", "Pedido inválido encontrado na mesa.");
     for (let lineIndex = 0; lineIndex < order.items.length; lineIndex += 1) {
       const item = order.items[lineIndex];
-      const available = openLineQuantity(order, lineIndex);
+      const available = unpaidLineQuantity(order, lineIndex);
       const quantity = itemSelections ? itemSelections.get(`${orderSnapshotItem.id}:${lineIndex}`) || 0 : available;
       if (!Number.isInteger(available) || available < 0 || !Number.isInteger(quantity) || quantity < 0 || quantity > available) fail("failed-precondition", "A quantidade selecionada não está mais disponível.");
       if (quantity === 0) continue;
@@ -260,21 +256,24 @@ async function closeTable(data, db, user, request) {
     const items = [];
     const paidQuantitiesByOrder = new Map();
     const settledSelections = [];
+    const settledItemDetails = [];
     for (const snapshot of activeOrders) {
       const value = snapshot.data();
       if (!Array.isArray(value.items)) fail("invalid-argument", "Pedido inválido encontrado na mesa.");
       const paidQuantities = { ...(value.paidQuantities || {}) };
       for (let lineIndex = 0; lineIndex < value.items.length; lineIndex += 1) {
         const item = value.items[lineIndex];
-        const available = openLineQuantity(value, lineIndex);
+        const available = unpaidLineQuantity(value, lineIndex);
         const quantity = itemSelections ? itemSelections.get(`${snapshot.id}:${lineIndex}`) || 0 : available;
         if (!Number.isInteger(available) || available < 0 || !Number.isInteger(quantity) || quantity < 0 || quantity > available) fail("failed-precondition", "A quantidade selecionada não está mais disponível.");
         if (quantity === 0) continue;
+        if (!quantityCanBeSettled(value, lineIndex, quantity)) fail("failed-precondition", "A quantidade selecionada não está mais disponível.");
         const unitCents = cents(item.price);
         subtotalCents += unitCents * quantity;
         itemCount += quantity;
         items.push({ name: String(item.name || "Produto"), quantity, price: unitCents / 100 });
         settledSelections.push({ orderId: snapshot.id, lineIndex, quantity });
+        settledItemDetails.push({ orderId: snapshot.id, lineIndex, productId: String(item.productId || ""), name: String(item.name || "Produto"), quantity, unitPriceCents: unitCents });
         paidQuantities[String(lineIndex)] = Number(paidQuantities[String(lineIndex)] || 0) + quantity;
       }
       paidQuantitiesByOrder.set(snapshot.id, paidQuantities);
@@ -329,6 +328,7 @@ async function closeTable(data, db, user, request) {
       serviceFeePercent,
       orderIds: activeOrders.map((snapshot) => snapshot.id),
       itemSelections: settledSelections,
+      itemDetails: settledItemDetails,
     });
     for (const snapshot of activeOrders) {
       const value = snapshot.data();
@@ -424,18 +424,13 @@ async function transferOrders(data, db, user) {
       fail("not-found", "Mesa de origem ou destino não pertence a este restaurante.");
     }
     if (destinationSnapshot.data().status === "reservada") fail("failed-precondition", "Não é possível transferir pedidos para uma mesa reservada.");
-    const orders = orderSnapshot.docs.filter((snapshot) => {
-      const order = snapshot.data();
-      return order.tableId === sourceId && order.status !== "cancelado" && order.paymentStatus !== "paid"
-        && (!selectedIds || selectedIds.has(snapshot.id));
-    });
-    if (orders.length === 0) fail("failed-precondition", "Não há pedidos em aberto para transferir.");
-    if (selectedIds && orders.length !== selectedIds.size) fail("failed-precondition", "Um ou mais pedidos selecionados não estão mais disponíveis na mesa de origem.");
-    const remaining = orderSnapshot.docs.filter((snapshot) => {
-      const order = snapshot.data();
-      return order.tableId === sourceId && order.status !== "cancelado" && order.paymentStatus !== "paid"
-        && !orders.some((moving) => moving.id === snapshot.id);
-    });
+    let transferPlan;
+    try {
+      transferPlan = splitTransferOrders(orderSnapshot.docs.map((snapshot) => ({ id: snapshot.id, ref: snapshot.ref, ...snapshot.data() })), sourceId, selectedIds);
+    } catch {
+      fail("failed-precondition", "Um ou mais pedidos selecionados não estão mais disponíveis na mesa de origem.");
+    }
+    const { moving: orders, remaining } = transferPlan;
     for (const order of orders) transaction.update(order.ref, { tableId: destinationId, tableNumber: destinationNumber, transferredAt: FieldValue.serverTimestamp(), transferredBy: user.uid });
     transaction.update(sourceRef, { status: remaining.length ? "ocupada" : "livre", ...(remaining.length ? {} : { guests: 0, total: 0, customer: FieldValue.delete() }) });
     transaction.update(destinationRef, { status: "ocupada" });
@@ -503,9 +498,9 @@ async function cancelOrderItem(data, db, user, request) {
     const oldQuantity = Number(line.quantity);
     const alreadyPaid = Number(order.paidQuantities?.[String(lineIndex)] || 0);
     const previouslyCancelled = Number(line.cancelledQuantity || 0);
-    const availableToCancel = oldQuantity - alreadyPaid - previouslyCancelled;
+    const availableToCancel = unpaidLineQuantity(order, lineIndex);
     if (!Number.isInteger(oldQuantity) || !Number.isInteger(alreadyPaid) || !Number.isInteger(previouslyCancelled)
-      || availableToCancel < 0 || quantity > availableToCancel) fail("invalid-argument", "A quantidade informada excede os itens ainda não pagos da comanda.");
+      || availableToCancel < 0 || !quantityCanBeSettled(order, lineIndex, quantity)) fail("invalid-argument", "A quantidade informada excede os itens ainda não pagos da comanda.");
     const tableRef = db.collection("tables").doc(String(order.tableId));
     const assignmentRef = db.collection("waiterTables").doc(String(order.tableId));
     const billRequestRef = db.collection("billRequests").doc(`${order.tableId}_bill`);

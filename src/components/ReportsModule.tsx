@@ -3,6 +3,7 @@ import { Calendar, Clock, DollarSign, Download, TrendingUp, Users, UtensilsCross
 import { collection, onSnapshot, query, where } from "firebase/firestore";
 import { db } from "../firebase";
 import { useRestaurantScope } from "../contexts/RestaurantContext";
+import { aggregateProductSales, expenseDeltaCents, totalExpenseCents, type PaidItemDetail } from "../utils/reporting";
 
 type Period = "hoje" | "semana" | "mes" | "ano";
 type RecordData = Record<string, any>;
@@ -82,7 +83,7 @@ export default function ReportsModule() {
     }
     const stopOrders = onSnapshot(
       query(collection(db, "orders"), where("restaurantId", "==", restaurantId)),
-      (snapshot) => setOrders(snapshot.docs.map((item) => item.data())),
+      (snapshot) => setOrders(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))),
       (error) => console.error("Erro ao carregar pedidos dos relatórios:", error),
     );
     const stopPayments = onSnapshot(
@@ -132,28 +133,57 @@ export default function ReportsModule() {
   }, {});
   const sortedOperatorTotals = Object.entries(operatorTotals).sort((first, second) => second[1].amount - first[1].amount);
   const previousData = summarize(previousPayments);
-  const currentExpenses = cashTransactions
-    .filter((item) => item.type === "saida" && belongsTo(item, currentRange))
-    .reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+  const currentExpenseMovements = cashTransactions.filter((item) => belongsTo(item, currentRange));
+  const currentExpenses = totalExpenseCents(currentExpenseMovements) / 100;
   const estimatedResult = currentData.revenue - currentExpenses;
-  const completedOrders = orders.filter((order) => order.paymentStatus === "paid" && belongsTo(order, currentRange));
+  const paidOrderIdsInRange = new Set(currentPayments.flatMap((payment) => Array.isArray(payment.orderIds) ? payment.orderIds : []));
+  const completedOrders = orders.filter((order) => paidOrderIdsInRange.has(String(order.id || ""))
+    || (order.paymentStatus === "paid" && belongsTo(order, currentRange)));
 
-  const topProducts = Object.values(completedOrders.reduce((sales: Record<string, { name: string; quantity: number; revenue: number }>, order) => {
-    (Array.isArray(order.items) ? order.items : []).forEach((item: RecordData) => {
-      const name = String(item.name || "Produto");
-      if (!sales[name]) sales[name] = { name, quantity: 0, revenue: 0 };
-      sales[name].quantity += Number(item.quantity) || 0;
-      sales[name].revenue += (Number(item.price) || 0) * (Number(item.quantity) || 0);
+  const paymentsWithItemDetails = currentPayments.filter((payment) => Array.isArray(payment.itemDetails));
+  const modernOrderIds = new Set(paymentsWithItemDetails.flatMap((payment) => Array.isArray(payment.orderIds) ? payment.orderIds : []));
+  const paidItems: PaidItemDetail[] = paymentsWithItemDetails.flatMap((payment) => payment.itemDetails as PaidItemDetail[]);
+  completedOrders.filter((order) => !modernOrderIds.has(String(order.id || ""))).forEach((order) => {
+    (Array.isArray(order.items) ? order.items : []).forEach((item: RecordData, lineIndex: number) => {
+      const paid = Number(order.paidQuantities?.[String(lineIndex)]);
+      const quantity = Number.isInteger(paid) ? paid : Math.max(0, (Number(item.quantity) || 0) - (Number(item.cancelledQuantity) || 0));
+      if (quantity > 0) paidItems.push({ productId: item.productId, name: item.name, quantity, unitPriceCents: Math.round((Number(item.price) || 0) * 100) });
     });
-    return sales;
-  }, {})).sort((a, b) => b.quantity - a.quantity).slice(0, 5);
+  });
+  const topProducts = aggregateProductSales(paidItems).slice(0, 5);
+  const exportedItemDetails: Array<{ createdAt: unknown; tableNumber: unknown; item: PaidItemDetail }> = paymentsWithItemDetails.flatMap((payment) =>
+    (payment.itemDetails as PaidItemDetail[]).map((item) => ({ createdAt: payment.createdAt, tableNumber: payment.tableNumber, item })),
+  );
+  completedOrders.filter((order) => !modernOrderIds.has(String(order.id || ""))).forEach((order) => {
+    (Array.isArray(order.items) ? order.items : []).forEach((item: RecordData, lineIndex: number) => {
+      const paid = Number(order.paidQuantities?.[String(lineIndex)]);
+      const quantity = Number.isInteger(paid) ? paid : Math.max(0, (Number(item.quantity) || 0) - (Number(item.cancelledQuantity) || 0));
+      if (quantity > 0) exportedItemDetails.push({
+        createdAt: order.createdAt,
+        tableNumber: order.tableNumber,
+        item: { productId: item.productId, name: item.name, quantity, unitPriceCents: Math.round((Number(item.price) || 0) * 100) },
+      });
+    });
+  });
 
-  const peakHours = Object.entries(completedOrders.reduce((hours: Record<string, number>, order) => {
-    const date = asDate(order.createdAt);
-    if (date) {
+  const orderPaymentTimes = new Map<string, Date>();
+  currentPayments.forEach((payment) => {
+    const date = asDate(payment.createdAt);
+    if (!date) return;
+    (Array.isArray(payment.orderIds) ? payment.orderIds : []).forEach((orderId: string) => {
+      const existing = orderPaymentTimes.get(orderId);
+      if (!existing || existing < date) orderPaymentTimes.set(orderId, date);
+    });
+  });
+  completedOrders.forEach((order) => {
+    if (!orderPaymentTimes.has(String(order.id || ""))) {
+      const date = asDate(order.createdAt);
+      if (date) orderPaymentTimes.set(String(order.id || `legacy-${orderPaymentTimes.size}`), date);
+    }
+  });
+  const peakHours = Object.entries([...orderPaymentTimes.values()].reduce((hours: Record<string, number>, date) => {
       const hour = `${String(date.getHours()).padStart(2, "0")}:00`;
       hours[hour] = (hours[hour] || 0) + 1;
-    }
     return hours;
   }, {})).map(([hour, count]) => ({ hour, orders: count }));
 
@@ -186,7 +216,7 @@ export default function ReportsModule() {
       ["RESUMO", "Vendas confirmadas", currentData.revenue.toFixed(2)],
       ["RESUMO", "Pagamentos confirmados", currentData.orders],
       ["RESUMO", "Ticket médio", currentData.averageTicket.toFixed(2)],
-      ["RESUMO", "Despesas registradas", currentExpenses.toFixed(2)],
+      ["RESUMO", "Despesas líquidas (após estornos)", currentExpenses.toFixed(2)],
       ["RESUMO", "Resultado estimado", estimatedResult.toFixed(2)],
       [],
       ["PAGAMENTOS", "Data", "Mesa", "Forma de pagamento", "Operador", "Valor", "Clientes"],
@@ -195,20 +225,17 @@ export default function ReportsModule() {
       ...currentPayments.map((payment) => ["PAGAMENTO", formatDate(payment.createdAt), payment.tableNumber ?? "", payment.method ?? payment.paymentMethod ?? "", payment.createdByName || payment.createdBy || "Operador não identificado", Number(payment.amount) || 0, Number(payment.guests) || 0]),
       [],
       ["DESPESAS", "Data", "Descrição", "Categoria", "Valor", "Forma de pagamento"],
-      ...cashTransactions
-        .filter((item) => item.type === "saida" && belongsTo(item, currentRange))
-        .map((item) => ["DESPESA", formatDate(item.createdAt), item.description || "", item.category || "", Number(item.amount) || 0, item.paymentMethod || ""]),
+      ...currentExpenseMovements
+        .filter((item) => expenseDeltaCents(item) !== 0)
+        .map((item) => [item.type === "estorno" ? "ESTORNO DE DESPESA" : "DESPESA", formatDate(item.createdAt), item.description || "", item.category || "", expenseDeltaCents(item) / 100, item.paymentMethod || ""]),
       [],
       ["PRODUTOS VENDIDOS", "Produto", "Quantidade", "Faturamento"],
       ...topProducts.map((product) => ["PRODUTO", product.name, product.quantity, product.revenue.toFixed(2)]),
       [],
-      ["PEDIDOS PAGOS", "Data", "Mesa", "Itens", "Total"],
-      ...completedOrders.map((order) => [
-        "PEDIDO",
-        formatDate(order.createdAt),
-        order.tableNumber ?? "",
-        (Array.isArray(order.items) ? order.items : []).map((item: RecordData) => `${Number(item.quantity) || 0}x ${item.name || "Produto"}`).join(" | "),
-        (Array.isArray(order.items) ? order.items : []).reduce((sum: number, item: RecordData) => sum + (Number(item.price) || 0) * (Number(item.quantity) || 0), 0).toFixed(2),
+      ["ITENS PAGOS", "Data do pagamento", "Mesa", "Produto", "Quantidade", "Valor unitário", "Total"],
+      ...exportedItemDetails.map(({ createdAt, tableNumber, item }) => [
+        "ITEM PAGO", formatDate(createdAt), tableNumber ?? "", item.name || "Produto", Number(item.quantity) || 0,
+        (Number(item.unitPriceCents) || 0) / 100, ((Number(item.unitPriceCents) || 0) * (Number(item.quantity) || 0) / 100).toFixed(2),
       ]),
     ];
     const csv = `\uFEFF${rows.map((row) => row.map(csvValue).join(";")).join("\r\n")}`;
@@ -239,7 +266,7 @@ export default function ReportsModule() {
         <div className="stat-card"><div className="stat-icon orange"><UtensilsCrossed size={24} /></div><div><span>Pagamentos confirmados</span><strong>{currentData.orders}</strong><small className={ordersGrowth === null ? "neutral" : ordersGrowth >= 0 ? "positive" : "negative"}>{ordersGrowth === null ? "Sem pagamentos no período anterior" : `${ordersGrowth >= 0 ? "+" : ""}${ordersGrowth.toFixed(1)}% vs. período anterior`}</small></div></div>
         <div className="stat-card"><div className="stat-icon blue"><Users size={24} /></div><div><span>Clientes</span><strong>—</strong><small>O fluxo de pagamento não coleta essa informação</small></div></div>
         <div className="stat-card"><div className="stat-icon purple"><TrendingUp size={24} /></div><div><span>Ticket Médio</span><strong>{money(currentData.averageTicket)}</strong><small>Vendas confirmadas ÷ pagamentos</small></div></div>
-        <div className="stat-card"><div className="stat-icon green"><Clock size={24} /></div><div><span>Resultado estimado</span><strong>{money(estimatedResult)}</strong><small>Vendas confirmadas menos saídas registradas</small></div></div>
+        <div className="stat-card"><div className="stat-icon green"><Clock size={24} /></div><div><span>Resultado estimado</span><strong>{money(estimatedResult)}</strong><small>Vendas confirmadas menos despesas líquidas</small></div></div>
       </div>
 
       <div className="reports-grid">
@@ -248,8 +275,8 @@ export default function ReportsModule() {
 
         <div className="report-card"><div className="report-card-header"><h3>Horários dos pedidos concluídos</h3><span className="report-badge">Período selecionado</span></div><div className="peak-hours-chart">{peakHours.length === 0 ? <p className="empty-state">Sem pedidos concluídos no período.</p> : peakHours.map((hour) => { const max = Math.max(...peakHours.map((entry) => entry.orders), 1); return <div key={hour.hour} className="peak-hour-item"><div className="hour-bar-container"><div className="hour-bar" style={{ width: `${hour.orders / max * 100}%` }} /></div><div className="hour-info"><span>{hour.hour}</span><strong>{hour.orders} pedidos</strong></div></div>; })}</div></div>
 
-        <div className="report-card"><div className="report-card-header"><h3>Indicadores operacionais</h3><span className="report-badge">Dados disponíveis</span></div><div className="metrics-list"><div className="metric-item"><div className="metric-label"><span>Pedidos concluídos</span><small>No período selecionado</small></div><div className="metric-value"><strong>{completedOrders.length}</strong></div></div>{Object.entries(paymentMethodTotals).map(([method, amount]) => <div className="metric-item" key={method}><div className="metric-label"><span>Pagamento · {method}</span><small>Período selecionado</small></div><div className="metric-value"><strong>{money(amount)}</strong></div></div>)}
-        <div className="metric-item"><div className="metric-label"><span>Saídas de caixa</span><small>Despesas lançadas no período</small></div><div className="metric-value"><strong>{money(currentExpenses)}</strong></div></div><div className="metric-item"><div className="metric-label"><span>Resultado estimado</span><small>Não inclui custos não lançados no caixa</small></div><div className="metric-value"><strong>{money(estimatedResult)}</strong></div></div></div></div>
+        <div className="report-card"><div className="report-card-header"><h3>Indicadores operacionais</h3><span className="report-badge">Dados disponíveis</span></div><div className="metrics-list"><div className="metric-item"><div className="metric-label"><span>Pedidos com pagamentos</span><small>Inclui pagamentos parciais no período</small></div><div className="metric-value"><strong>{completedOrders.length}</strong></div></div>{Object.entries(paymentMethodTotals).map(([method, amount]) => <div className="metric-item" key={method}><div className="metric-label"><span>Pagamento · {method}</span><small>Período selecionado</small></div><div className="metric-value"><strong>{money(amount)}</strong></div></div>)}
+        <div className="metric-item"><div className="metric-label"><span>Despesas líquidas</span><small>Saídas menos estornos no período</small></div><div className="metric-value"><strong>{money(currentExpenses)}</strong></div></div><div className="metric-item"><div className="metric-label"><span>Resultado estimado</span><small>Não inclui custos não lançados no caixa</small></div><div className="metric-value"><strong>{money(estimatedResult)}</strong></div></div></div></div>
 
         <div className="report-card full-width"><div className="report-card-header"><h3>Vendas confirmadas — últimos 7 dias</h3><span className="report-badge">Pagamentos no banco</span></div><div className="revenue-trend">{trend.every((day) => day.revenue === 0) ? <p className="empty-state">Sem dados suficientes para exibir o gráfico.</p> : trend.map((day) => <div key={day.label} className="trend-item"><div className="trend-bar-container"><div className="trend-bar" style={{ width: `${day.revenue / Math.max(...trend.map((entry) => entry.revenue), 1) * 100}%` }} /></div><div className="trend-info"><span>{day.label}</span><strong>{money(day.revenue)}</strong></div></div>)}</div></div>
       </div>

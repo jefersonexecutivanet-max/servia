@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { calculateDiscount, normalizePaymentParts, toCents } from "../server/cash-logic.js";
+import { quantityCanBeSettled, splitTransferOrders, unpaidLineQuantity } from "../server/payment-domain.js";
 
 describe("cash payment calculations", () => {
   it("keeps a split payment equal to the server total", () => {
@@ -38,5 +39,31 @@ describe("server discount calculations", () => {
     expect(() => calculateDiscount(10000, { type: "percent", value: 100.01 })).toThrow();
     expect(() => calculateDiscount(10000, { type: "fixed", value: 100.01 })).toThrow();
     expect(() => calculateDiscount(10000, { type: "percent", value: 0 })).toThrow();
+  });
+});
+
+describe("partial payment, cancellation and transfer selections", () => {
+  it("limits both payment and cancellation to the remaining line quantity", () => {
+    const order = {
+      items: [{ productId: "coffee", quantity: 5, cancelledQuantity: 1 }],
+      paidQuantities: { "0": 2 },
+    };
+    expect(unpaidLineQuantity(order, 0)).toBe(2);
+    expect(quantityCanBeSettled(order, 0, 2)).toBe(true);
+    expect(quantityCanBeSettled(order, 0, 3)).toBe(false);
+    expect(quantityCanBeSettled(order, 0, 0)).toBe(false);
+  });
+
+  it("transfers only selected open orders and retains the rest", () => {
+    const orders = [
+      { id: "open-a", tableId: "restaurant_1", status: "novo" },
+      { id: "open-b", tableId: "restaurant_1", status: "preparando" },
+      { id: "paid", tableId: "restaurant_1", status: "pronto", paymentStatus: "paid" },
+      { id: "other-table", tableId: "restaurant_2", status: "novo" },
+    ];
+    const result = splitTransferOrders(orders, "restaurant_1", new Set(["open-a"]));
+    expect(result.moving.map((order) => order.id)).toEqual(["open-a"]);
+    expect(result.remaining.map((order) => order.id)).toEqual(["open-b"]);
+    expect(() => splitTransferOrders(orders, "restaurant_1", new Set(["missing"]))).toThrow();
   });
 });
