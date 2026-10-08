@@ -1985,9 +1985,11 @@ export default function App() {
         auth,
         async (currentUser) => {
           setUser(currentUser);
+          // Do not carry a previous employee role into a different login session.
+          setWaiterId("");
+          setStaffRole(null);
           if (!currentUser) {
             setAccess("signed-out");
-            setWaiterId("");
             setAccessMessage("Entre com uma conta cadastrada para a equipe Servia.");
             setLoading(false);
             return;
@@ -2023,6 +2025,7 @@ export default function App() {
               setAccess("admin");
             } else {
               const restaurantSnapshot = await getDoc(doc(db, "restaurants", currentUser.uid));
+              if (auth.currentUser?.uid !== currentUser.uid) return;
               const restaurantData = restaurantSnapshot.data();
               if (
                 restaurantSnapshot.exists() &&
@@ -2033,11 +2036,7 @@ export default function App() {
                 const monthlyPaidUntil = restaurantData.monthlyPaidUntil?.toDate?.() as Date | undefined;
                 setPendingPaymentAmount(monthlyPaidUntil ? 100 : 600);
                 const isPaid = restaurantData.status === "active" && monthlyPaidUntil && monthlyPaidUntil.getTime() > Date.now();
-                setAccess((currentAccess) =>
-                  currentAccess === "restaurant" || isPaid
-                    ? "restaurant"
-                    : "restaurant-pending",
-                );
+                setAccess(isPaid ? "restaurant" : "restaurant-pending");
               } else {
                 let memberSnapshot;
                 let matchingMembers;
