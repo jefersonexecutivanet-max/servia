@@ -84,9 +84,9 @@ function parseRestaurant(id: string, data: Record<string, unknown>): RestaurantA
   };
 }
 
-function subscriptionIsCurrent(restaurant: RestaurantAccount) {
+function subscriptionIsCurrent(restaurant: RestaurantAccount, now: number) {
   return restaurant.status === "active"
-    && Boolean(restaurant.monthlyPaidUntil && restaurant.monthlyPaidUntil.getTime() > Date.now());
+    && Boolean(restaurant.monthlyPaidUntil && restaurant.monthlyPaidUntil.getTime() > now);
 }
 
 function paymentAmount(restaurant: RestaurantAccount) {
@@ -109,6 +109,12 @@ export default function RestaurantsModule({
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [copied, setCopied] = useState(false);
+  const [now, setNow] = useState(Date.now());
+
+  useEffect(() => {
+    const interval = setInterval(() => setNow(Date.now()), 60000);
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     const restaurantsQuery = query(collection(db, "restaurants"), orderBy("createdAt", "desc"));
@@ -131,8 +137,8 @@ export default function RestaurantsModule({
       .toLowerCase()
       .includes(search.trim().toLowerCase()),
   );
-  const pendingCount = restaurants.filter((item) => !subscriptionIsCurrent(item)).length;
-  const activeCount = restaurants.filter(subscriptionIsCurrent).length;
+  const pendingCount = restaurants.filter((item) => !subscriptionIsCurrent(item, now)).length;
+  const activeCount = restaurants.filter((item) => subscriptionIsCurrent(item, now)).length;
 
   function openNewForm() {
     setError("");
@@ -350,7 +356,7 @@ export default function RestaurantsModule({
         <div className="restaurant-list">
           {visibleRestaurants.map((restaurant) => (
             (() => {
-              const accessIsCurrent = subscriptionIsCurrent(restaurant);
+              const accessIsCurrent = subscriptionIsCurrent(restaurant, now);
               const dueAmount = paymentAmount(restaurant);
               return (
             <article className="restaurant-row" key={restaurant.id}>

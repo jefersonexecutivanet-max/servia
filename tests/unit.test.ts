@@ -1,8 +1,8 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { cartItemKey } from "../src/utils/cart";
 import { calculateOrderTotal, shouldClaimOrderPrint } from "../src/utils/orders";
 import { normalizeStaffRole } from "../src/types/roles";
-import type { Product, ProductExtra } from "../src/types/menu";
+import type { Product } from "../src/types/menu";
 
 describe("order and cart helpers", () => {
   it("recalculates totals from item quantity and price", () => {

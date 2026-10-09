@@ -7,6 +7,13 @@ import {
   LoaderCircle,
   ReceiptText,
   UserRoundCheck,
+  UtensilsCrossed,
+  AlertTriangle,
+  Wifi,
+  WifiOff,
+  Settings,
+  Plus,
+  CheckCircle2,
 } from "lucide-react";
 import {
   collection,
@@ -32,12 +39,19 @@ import { formatCurrency } from "../utils/format";
 import { calculateOrderTotal } from "../utils/orders";
 import { useRestaurantScope } from "../contexts/RestaurantContext";
 import TableTurnoverModule from "./TableTurnoverModule";
+import { useOnlineStatus } from "../hooks/useOnlineStatus";
+import WaiterOrderComposer from "./waiter/WaiterOrderComposer";
+import WaiterReadyOrderDetail from "./waiter/WaiterReadyOrderDetail";
+import WaiterCallDetail from "./waiter/WaiterCallDetail";
+import WaiterTableDetail from "./waiter/WaiterTableDetail";
 
-type RequestKind = "waiter" | "bill";
-type RequestCollection = "tableCalls" | "billRequests";
-type RequestFilter = "open" | "completed";
+export type RequestKind = "waiter" | "bill";
+export type RequestCollection = "tableCalls" | "billRequests";
+export type RequestFilter = "open" | "completed";
+export type CallTypeFilter = "all" | "waiter" | "bill";
+export type CallStatusFilter = "all" | "pending" | "in_progress" | "completed";
 
-type ServiceRequest = {
+export type ServiceRequest = {
   id: string;
   collectionName: RequestCollection;
   type: RequestKind;
@@ -48,18 +62,19 @@ type ServiceRequest = {
   waiterName?: string;
 };
 
-type TableOrder = {
+export type TableOrder = {
   id: string;
   tableId: string;
   tableNumber: number;
   status: string;
   paymentStatus: string;
   total: number;
-  items: Array<{ name: string; quantity: number }>;
+  items: Array<{ name: string; quantity: number; price?: number; extras?: string[]; notes?: string }>;
   createdAt?: Date;
+  paidAt?: Date;
 };
 
-type AssignedTable = {
+export type AssignedTable = {
   id: string;
   tableNumber: number;
 };
@@ -111,18 +126,22 @@ function convertTableOrder(
       ? data.items.map((item) => ({
           name: String(item.name || "Item"),
           quantity: Number(item.quantity || 0),
+          price: Number(item.price || 0),
+          extras: Array.isArray(item.extras) ? item.extras.map(String) : [],
+          notes: String(item.notes || ""),
         }))
       : [],
     createdAt: data.createdAt?.toDate instanceof Function ? data.createdAt.toDate() : undefined,
+    paidAt: data.paidAt?.toDate instanceof Function ? data.paidAt.toDate() : undefined,
   };
 }
 
-function formatRequestTime(date?: Date) {
+function formatRequestTime(date: Date | undefined, now: number) {
   if (!date) {
     return "Agora";
   }
 
-  const minutes = Math.max(0, Math.floor((Date.now() - date.getTime()) / 60000));
+  const minutes = Math.max(0, Math.floor((now - date.getTime()) / 60000));
   if (minutes < 1) {
     return "Agora";
   }
@@ -146,9 +165,12 @@ export default function WaiterModule({
   showTurnover?: boolean;
 }) {
   const { restaurantId } = useRestaurantScope();
+  const isOnline = useOnlineStatus();
   const [tableCalls, setTableCalls] = useState<ServiceRequest[]>([]);
   const [billRequests, setBillRequests] = useState<ServiceRequest[]>([]);
   const [filter, setFilter] = useState<RequestFilter>("open");
+  const [callTypeFilter, setCallTypeFilter] = useState<CallTypeFilter>("all");
+  const [callStatusFilter, setCallStatusFilter] = useState<CallStatusFilter>("all");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [updatingId, setUpdatingId] = useState("");
@@ -166,6 +188,17 @@ export default function WaiterModule({
   const audioContextRef = useRef<AudioContext | null>(null);
   const [alertsEnabled, setAlertsEnabled] = useState(false);
   const [newAlert, setNewAlert] = useState("");
+  const [now, setNow] = useState(Date.now());
+  // Modal states
+  const [selectedReadyOrder, setSelectedReadyOrder] = useState<TableOrder | null>(null);
+  const [selectedCall, setSelectedCall] = useState<ServiceRequest | null>(null);
+  const [selectedTable, setSelectedTable] = useState<(Table & { isAssignedToMe: boolean; position: { left: string; top: string } }) | null>(null);
+  const [showOrderComposer, setShowOrderComposer] = useState<{ tableNumber: number; tableId: string; accessToken?: string } | null>(null);
+
+  useEffect(() => {
+    const interval = setInterval(() => setNow(Date.now()), 60000);
+    return () => clearInterval(interval);
+  }, []);
 
   // Função para tocar som de notificação
   async function enableAlerts() {
@@ -526,20 +559,12 @@ export default function WaiterModule({
   const openCount = requests.filter(
     (request) => request.status !== "completed",
   ).length;
-  const inProgressCount = requests.filter(
-    (request) => request.status === "in_progress",
-  ).length;
   useEffect(() => {
     if (!alertsEnabled || openCount === 0) return;
     const soundInterval = window.setInterval(playNotificationSound, 5000);
     return () => window.clearInterval(soundInterval);
   }, [alertsEnabled, openCount]);
   const escalationMinutes = Math.max(1, Number(import.meta.env.VITE_CALL_ESCALATION_MINUTES) || 3);
-  const visibleRequests = requests.filter((request) =>
-    filter === "open"
-      ? request.status !== "completed"
-      : request.status === "completed",
-  );
   const readyOrders = orders.filter((order) =>
     order.status === "pronto"
     && order.paymentStatus !== "paid"
@@ -562,6 +587,37 @@ export default function WaiterModule({
       : fallbackPosition;
     return { ...table, status, isAssignedToMe, position };
   });
+
+  // Summary counts
+  const myTablesCount = assignedTables.length;
+  const readyOrdersCount = readyOrders.length;
+  const openCallsCount = requests.filter((r) => r.status !== "completed").length;
+  const billRequestsCount = requests.filter((r) => r.type === "bill" && r.status !== "completed").length;
+
+  // Filter visible requests
+  const visibleRequests = requests.filter((request) => {
+    if (filter === "completed" && request.status !== "completed") return false;
+    if (filter === "open" && request.status === "completed") return false;
+    if (callTypeFilter !== "all" && request.type !== callTypeFilter) return false;
+    if (callStatusFilter !== "all" && request.status !== callStatusFilter) return false;
+    return true;
+  });
+
+  function openOrderComposer(tableNumber: number, tableId: string, accessToken?: string) {
+    setShowOrderComposer({ tableNumber, tableId, accessToken });
+  }
+
+  function openTableDetail(table: Table & { isAssignedToMe: boolean; position: { left: string; top: string } }) {
+    setSelectedTable(table);
+  }
+
+  function openReadyOrderDetail(order: TableOrder) {
+    setSelectedReadyOrder(order);
+  }
+
+  function openCallDetail(request: ServiceRequest) {
+    setSelectedCall(request);
+  }
 
   async function markOrderDelivered(order: TableOrder) {
     if (updatingId) return;
@@ -613,34 +669,86 @@ export default function WaiterModule({
   return (
     <section className="waiter-page" aria-live="polite">
       <header className="waiter-heading">
-        <div>
-          <span className="eyebrow">SAL�O � EM TEMPO REAL</span>
-          <h1>Atendimento</h1>
-          <p>Chamados e pedidos de conta das mesas.</p>
+        <div className="heading-left">
+          <div className="servia-brand">
+            <UtensilsCrossed size={24} />
+            <span>Servia</span>
+          </div>
+          <div className="heading-title">
+            <h1>Garçom</h1>
+            <p>Atendimento em tempo real · {user.displayName || user.email}</p>
+          </div>
         </div>
         <div className="waiter-header-actions">
-          <button className="waiter-alert-toggle" type="button" onClick={() => void enableAlerts()}>
-            {alertsEnabled ? "Avisos ativados" : "Ativar avisos e som"}
-          </button>
-          <div className="waiter-live-indicator">
-            <span /> Ao vivo
+          <div className={`connection-indicator ${isOnline ? "online" : "offline"}`} title={isOnline ? "Conectado ao Firebase" : "Desconectado"}>
+            {isOnline ? <Wifi size={16} /> : <WifiOff size={16} />}
+            <span>{isOnline ? "Online" : "Offline"}</span>
           </div>
+          <button className="waiter-alert-toggle" type="button" onClick={() => void enableAlerts()}>
+            {alertsEnabled ? (
+              <>
+                <BellRing size={18} /> Avisos ativados
+              </>
+            ) : (
+              <>
+                <BellRing size={18} /> Ativar avisos
+              </>
+            )}
+          </button>
+          <button className="waiter-settings-btn" type="button" title="Configurações">
+            <Settings size={20} />
+          </button>
         </div>
       </header>
 
       {newAlert && <div className="waiter-new-alert" role="alert">{newAlert}</div>}
 
-      <div className="waiter-stats">
-        <div className="waiter-stat waiter-stat-open">
-          <BellRing size={19} />
-          <strong>{openCount}</strong>
-          <span>Em aberto</span>
-        </div>
-        <div className="waiter-stat waiter-stat-progress">
-          <UserRoundCheck size={19} />
-          <strong>{inProgressCount}</strong>
-          <span>Em atendimento</span>
-        </div>
+      {/* Summary Indicators */}
+      <div className="waiter-summary" role="region" aria-label="Resumo do atendimento">
+        <button
+          type="button"
+          className="summary-card"
+          onClick={() => { /* scroll to my tables */ }}
+        >
+          <UtensilsCrossed size={22} />
+          <div>
+            <strong>{myTablesCount}</strong>
+            <span>Minhas Mesas</span>
+          </div>
+        </button>
+        <button
+          type="button"
+          className="summary-card ready"
+          onClick={() => { /* scroll to ready orders */ }}
+        >
+          <CheckCircle2 size={22} />
+          <div>
+            <strong>{readyOrdersCount}</strong>
+            <span>Prontos p/ Entregar</span>
+          </div>
+        </button>
+        <button
+          type="button"
+          className="summary-card calls"
+          onClick={() => { /* scroll to calls */ }}
+        >
+          <BellRing size={22} />
+          <div>
+            <strong>{openCallsCount}</strong>
+            <span>Chamados Abertos</span>
+          </div>
+        </button>
+        <button
+          type="button"
+          className="summary-card bills"
+          onClick={() => { /* scroll to bills */ }}
+        >
+          <ReceiptText size={22} />
+          <div>
+            <strong>{billRequestsCount}</strong>
+            <span>Contas Solicitadas</span>
+          </div>
+        </button>
       </div>
 
       <section className="waiter-floor-map-panel" aria-label="Mapa de mesas do salão">
@@ -653,22 +761,53 @@ export default function WaiterModule({
         ) : (
           <>
             <div className="waiter-floor-map">
-              <span className="waiter-floor-entrance">ENTRADA / SALÃƒO</span>
+              <span className="waiter-floor-entrance">ENTRADA / SALÃO</span>
               {waiterMapTables.map((table) => {
-                const statusLabel = table.status === "reservada"
+                const tableOrders = orders.filter(
+                  (o) => o.tableNumber === table.number && o.status !== "cancelado" && o.paymentStatus !== "paid"
+                );
+                const hasReadyOrders = tableOrders.some((o) => o.status === "pronto");
+                const hasOpenCalls = [...tableCalls, ...billRequests].some(
+                  (c) => c.tableNumber === table.number && c.status !== "completed"
+                );
+                const hasBillRequest = billRequests.some(
+                  (c) => c.tableNumber === table.number && c.status !== "completed"
+                );
+                const isWaitingService = hasOpenCalls && !hasReadyOrders && !hasBillRequest;
+                const isWaitingBill = hasBillRequest && !hasReadyOrders;
+                
+                let statusLabel = table.status === "reservada"
                   ? "Reservada"
                   : table.status === "ocupada" ? "Ocupada" : "Livre";
+                if (isWaitingService) statusLabel = "Aguardando atendimento";
+                if (hasReadyOrders) statusLabel = "Pedido pronto";
+                if (isWaitingBill) statusLabel = "Aguardando conta";
+
+                const statusClass = table.isAssignedToMe 
+                  ? "assigned-to-me" 
+                  : hasReadyOrders 
+                    ? "has-ready" 
+                    : isWaitingService 
+                      ? "waiting-service" 
+                      : isWaitingBill 
+                        ? "waiting-bill" 
+                        : table.status;
+
                 return (
                   <div
-                    className={`waiter-map-table waiter-map-${table.status} ${table.isAssignedToMe ? "assigned-to-me" : ""}`}
+                    className={`waiter-map-table waiter-map-${table.status} ${statusClass}`}
                     key={table.number}
                     style={table.position}
-                    title={`Mesa ${table.number} · ${table.isAssignedToMe ? "Em seu atendimento" : statusLabel}`}
-                    aria-label={`Mesa ${table.number}, ${table.isAssignedToMe ? "em seu atendimento" : statusLabel}`}
+                    title={`Mesa ${table.number} · ${statusLabel}`}
+                    aria-label={`Mesa ${table.number}, ${statusLabel}`}
+                    onClick={() => openTableDetail(table)}
                   >
                     <span>{table.number}</span>
                     <strong>Mesa {table.number}</strong>
                     <small>{table.isAssignedToMe ? "Minha mesa" : statusLabel}</small>
+                    {hasReadyOrders && <span className="map-indicator ready"><CheckCircle2 size={12} /></span>}
+                    {isWaitingService && <span className="map-indicator waiting"><AlertTriangle size={12} /></span>}
+                    {isWaitingBill && <span className="map-indicator bill"><ReceiptText size={12} /></span>}
                   </div>
                 );
               })}
@@ -678,6 +817,9 @@ export default function WaiterModule({
               <span><i className="occupied" /> Ocupada</span>
               <span><i className="free" /> Livre</span>
               <span><i className="reserved" /> Reservada</span>
+              <span><i className="waiting" /> Aguardando</span>
+              <span><i className="ready" /> Pronto</span>
+              <span><i className="bill" /> Conta</span>
             </div>
           </>
         )}
@@ -698,21 +840,70 @@ export default function WaiterModule({
                 && order.status !== "cancelado"
                 && order.paymentStatus !== "paid",
               );
+              const tableCallsForTable = [...tableCalls, ...billRequests].filter(
+                (c) => c.tableNumber === table.tableNumber && c.status !== "completed"
+              );
+              const hasReadyOrders = tableOrders.some((o) => o.status === "pronto");
+              const total = tableOrders.reduce((sum, order) => sum + order.total, 0);
+              const itemCount = tableOrders.reduce((sum, order) => sum + order.items.reduce((s, i) => s + i.quantity, 0), 0);
+              const openCallsCount = tableCallsForTable.length;
+
               return (
                 <article className="waiter-assigned-table" key={table.id}>
-                  <strong>Mesa {table.tableNumber}</strong>
+                  <div className="table-header">
+                    <strong>Mesa {table.tableNumber}</strong>
+                    {hasReadyOrders && <span className="table-badge ready"><CheckCircle2 size={14} /> Pronto</span>}
+                    {openCallsCount > 0 && <span className="table-badge waiting"><AlertTriangle size={14} /> {openCallsCount} chamado{openCallsCount > 1 ? "s" : ""}</span>}
+                  </div>
                   {tableOrders.length === 0 ? (
-                    <span>Nenhum pedido em aberto.</span>
+                    <span className="no-orders">Nenhum pedido em aberto.</span>
                   ) : (
                     <>
-                      <ul>
+                      <ul className="table-items">
                         {tableOrders.flatMap((order) => order.items.map((item, index) => (
-                          <li key={`${order.id}-${index}`}>{item.quantity}x {item.name}</li>
+                          <li key={`${order.id}-${index}`}>
+                            <span>{item.quantity}x {item.name}</span>
+                            {item.extras && item.extras.length > 0 && <span className="item-extras">+ {item.extras.join(", ")}</span>}
+                            {item.notes && <span className="item-notes">"{item.notes}"</span>}
+                          </li>
                         )))}
                       </ul>
-                      <span>Total: {formatCurrency(tableOrders.reduce((sum, order) => sum + order.total, 0))}</span>
+                      <div className="table-summary">
+                        <span>{itemCount} item{itemCount !== 1 ? "s" : ""}</span>
+                        <strong>{formatCurrency(total)}</strong>
+                      </div>
+                      {openCallsCount > 0 && (
+                        <span className="table-calls">{openCallsCount} chamado{openCallsCount > 1 ? "s" : ""} aberto{openCallsCount > 1 ? "s" : ""}</span>
+                      )}
                     </>
                   )}
+                  <div className="table-actions">
+                    <button
+                      type="button"
+                      className="action-btn primary"
+                      onClick={() => openOrderComposer(table.tableNumber, `${restaurantId}_${table.tableNumber}`)}
+                    >
+                      <Plus size={14} /> Adicionar
+                    </button>
+                    <button
+                      type="button"
+                      className="action-btn secondary"
+                      onClick={() => {
+                        const fullTable = tables.find((t) => t.number === table.tableNumber);
+                        if (fullTable) {
+                          const pos = waiterMapTables.find((t) => t.number === table.tableNumber)?.position || { left: "0", top: "0" };
+                          openTableDetail({ ...fullTable, isAssignedToMe: true, position: pos });
+                        }
+                      }}
+                    >
+                      Ver detalhes
+                    </button>
+                    {tableOrders.length > 0 && (
+                      <button type="button" className="action-btn bill" onClick={() => alert("Solicitar conta")}>
+                        <ReceiptText size={14} /> Conta
+                      </button>
+                    )}
+                  </div>
                 </article>
               );
             })}
@@ -729,23 +920,52 @@ export default function WaiterModule({
           <p className="waiter-assigned-tables-empty">Os pedidos da cozinha aparecerão aqui quando estiverem prontos.</p>
         ) : (
           <div className="waiter-ready-order-list">
-            {readyOrders.map((order) => (
-              <article className="waiter-ready-order" key={order.id}>
-                <div>
-                  <strong>Mesa {order.tableNumber}</strong>
-                  <span>{order.items.map((item) => `${item.quantity}x ${item.name}`).join(" · ")}</span>
-                  <span>{formatCurrency(order.total)}</span>
-                </div>
-                <button
-                  type="button"
-                  disabled={Boolean(updatingId)}
-                  onClick={() => void markOrderDelivered(order)}
-                >
-                  {updatingId === order.id ? <LoaderCircle className="waiter-loader" size={17} /> : <Check size={17} />}
-                  Marcar como entregue
-                </button>
-              </article>
-            ))}
+            {readyOrders.map((order) => {
+              const timeReady = order.paidAt || order.createdAt;
+              const elapsed = timeReady ? Math.max(0, Math.floor((now - timeReady.getTime()) / 60000)) : 0;
+              const elapsedText = elapsed < 1 ? "Agora" : elapsed < 60 ? `${elapsed} min` : `${Math.floor(elapsed / 60)}h ${elapsed % 60}min`;
+              const itemCount = order.items.reduce((sum, item) => sum + item.quantity, 0);
+              
+              return (
+                <article className="waiter-ready-order" key={order.id} onClick={() => openReadyOrderDetail(order)}>
+                  <div className="order-main">
+                    <div className="order-header">
+                      <strong>Mesa {order.tableNumber}</strong>
+                      <span className="order-id">#{order.id.slice(0, 8).toUpperCase()}</span>
+                    </div>
+                    <div className="order-meta">
+                      <span className="item-count">{itemCount} item{itemCount !== 1 ? "s" : ""}</span>
+                      <span className="ready-time">
+                        <Clock3 size={14} /> Pronto há {elapsedText}
+                      </span>
+                      <span className="order-total">{formatCurrency(order.total)}</span>
+                    </div>
+                    <p className="order-items-preview">
+                      {order.items.slice(0, 3).map((item) => `${item.quantity}x ${item.name}`).join(" · ")}
+                      {order.items.length > 3 && ` +${order.items.length - 3} mais`}
+                    </p>
+                  </div>
+                  <div className="order-actions">
+                    <button
+                      type="button"
+                      className="action-btn view-btn"
+                      onClick={(e) => { e.stopPropagation(); openReadyOrderDetail(order); }}
+                    >
+                      Ver pedido
+                    </button>
+                    <button
+                      type="button"
+                      className={`action-btn deliver-btn ${updatingId === order.id ? "loading" : ""}`}
+                      onClick={(e) => { e.stopPropagation(); void markOrderDelivered(order); }}
+                      disabled={Boolean(updatingId)}
+                    >
+                      {updatingId === order.id ? <LoaderCircle className="waiter-loader" size={16} /> : <Check size={16} />}
+                      {updatingId === order.id ? "Entregando..." : "Entregue"}
+                    </button>
+                  </div>
+                </article>
+              );
+            })}
           </div>
         )}
       </section>
@@ -766,7 +986,7 @@ export default function WaiterModule({
             aria-selected={filter === "open"}
             onClick={() => setFilter("open")}
           >
-            Abertos <span>{openCount}</span>
+            Abertos <span>{openCallsCount}</span>
           </button>
           <button
             className={filter === "completed" ? "active" : ""}
@@ -777,6 +997,27 @@ export default function WaiterModule({
           >
             Concluídos
           </button>
+        </div>
+        <div className="waiter-filters">
+          <select
+            value={callTypeFilter}
+            onChange={(e) => setCallTypeFilter(e.target.value as CallTypeFilter)}
+            aria-label="Filtrar por tipo"
+          >
+            <option value="all">Todos</option>
+            <option value="waiter">Chamados</option>
+            <option value="bill">Contas</option>
+          </select>
+          <select
+            value={callStatusFilter}
+            onChange={(e) => setCallStatusFilter(e.target.value as CallStatusFilter)}
+            aria-label="Filtrar por status"
+          >
+            <option value="all">Todos</option>
+            <option value="pending">Abertos</option>
+            <option value="in_progress">Em atendimento</option>
+            <option value="completed">Concluídos</option>
+          </select>
         </div>
         <span className="waiter-queue-note">
           {filter === "open" ? "Mais antigo primeiro" : "Histórico recente"}
@@ -810,12 +1051,13 @@ export default function WaiterModule({
             const Icon: ElementType = isBill ? ReceiptText : BellRing;
             const isCompleted = request.status === "completed";
             const isInProgress = request.status === "in_progress";
-            const isEscalated = request.status === "pending" && request.createdAt != null && Date.now() - request.createdAt.getTime() >= escalationMinutes * 60_000;
+            const isEscalated = request.status === "pending" && request.createdAt != null && now - request.createdAt.getTime() >= escalationMinutes * 60_000;
 
             return (
               <article
                 className={`waiter-request ${isBill ? "bill" : "call"} ${isCompleted ? "completed" : ""} ${isEscalated ? "escalated" : ""}`}
                 key={documentKey}
+                onClick={() => openCallDetail(request)}
               >
                 <div className="waiter-request-icon">
                   <Icon size={22} />
@@ -824,20 +1066,20 @@ export default function WaiterModule({
                   <div className="waiter-request-title">
                     <span>{isBill ? "Solicitou a conta" : "Chamou o garçom"}</span>
                     <span className="waiter-request-time">
-                      <Clock3 size={14} /> {formatRequestTime(request.createdAt)}
+                      <Clock3 size={14} /> {formatRequestTime(request.createdAt, now)}
                     </span>
                   </div>
                   <strong className="waiter-table-number">
                     Mesa {request.tableNumber}
                   </strong>
-                  {isEscalated && <span className="waiter-attendant">Aguardando há mais de {escalationMinutes} min · prioridade do salão</span>}
+                  {isEscalated && <span className="waiter-attendant escalated">Aguardando há mais de {escalationMinutes} min · prioridade do salão</span>}
                   {isInProgress && request.attendedBy && (
-                    <span className="waiter-attendant">
+                    <span className="waiter-attendant in-progress">
                       Em atendimento por {request.attendedBy}
                     </span>
                   )}
                   {isCompleted && request.attendedBy && (
-                    <span className="waiter-attendant">
+                    <span className="waiter-attendant completed">
                       Atendido por {request.attendedBy}
                     </span>
                   )}
@@ -865,7 +1107,7 @@ export default function WaiterModule({
                   className={`waiter-action ${isCompleted ? "done" : ""}`}
                   type="button"
                   disabled={Boolean(updatingId) || isCompleted}
-                  onClick={() => void advanceRequest(request)}
+                  onClick={(e) => { e.stopPropagation(); void advanceRequest(request); }}
                 >
                   {updatingId === documentKey ? (
                     <LoaderCircle className="waiter-loader" size={17} />
@@ -888,6 +1130,44 @@ export default function WaiterModule({
             );
           })}
         </div>
+      )}
+
+      {/* Modals */}
+      {selectedReadyOrder && (
+        <WaiterReadyOrderDetail
+          order={selectedReadyOrder}
+          onClose={() => setSelectedReadyOrder(null)}
+          onMarkDelivered={markOrderDelivered}
+          delivering={updatingId === selectedReadyOrder.id}
+          now={now}
+        />
+      )}
+      {selectedCall && (
+        <WaiterCallDetail
+          request={selectedCall}
+          orders={orders}
+          onClose={() => setSelectedCall(null)}
+          onAdvance={advanceRequest}
+          updating={updatingId === `${selectedCall.collectionName}/${selectedCall.id}`}
+        />
+      )}
+      {selectedTable && (
+        <WaiterTableDetail
+          table={selectedTable}
+          orders={orders}
+          tableCalls={tableCalls}
+          billRequests={billRequests}
+          onClose={() => setSelectedTable(null)}
+          onOpenComposer={openOrderComposer}
+        />
+      )}
+      {showOrderComposer && (
+        <WaiterOrderComposer
+          tableNumber={showOrderComposer.tableNumber}
+          tableId={showOrderComposer.tableId}
+          accessToken={showOrderComposer.accessToken}
+          onClose={() => setShowOrderComposer(null)}
+        />
       )}
     </section>
   );

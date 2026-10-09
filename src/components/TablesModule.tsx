@@ -20,6 +20,8 @@ import {
   Move,
   Store,
   ChevronDown,
+  Minus,
+  Search,
 } from "lucide-react";
 
 import { formatCurrency } from "../utils/format";
@@ -30,7 +32,8 @@ import { useRestaurantScope } from "../contexts/RestaurantContext";
 import type { Table, TableStatus } from "../types/table";
 import { generateAccessToken } from "../utils/tokens";
 import { calculateOrderTotal } from "../utils/orders";
-import { paymentApi } from "../utils/employeeApi";
+import { paymentApi, orderApi } from "../utils/employeeApi";
+import { useMenuCatalog } from "../hooks/useMenuCatalog";
 
 const initialTables: Table[] = [];
 
@@ -97,6 +100,14 @@ export default function TablesModule() {
 
   const [copied, setCopied] =
     useState(false);
+
+  const [showManualOrder, setShowManualOrder] = useState(false);
+  const [manualOrderLoading, setManualOrderLoading] = useState(false);
+  const [manualOrderError, setManualOrderError] = useState("");
+  const [manualOrderSearch, setManualOrderSearch] = useState("");
+  const [manualOrderCart, setManualOrderCart] = useState<Record<string, { product: any; quantity: number }>>({});
+
+  const { products, loading: menuLoading } = useMenuCatalog(restaurantId || "");
 
   const [draggingTable, setDraggingTable] = useState<number | null>(null);
   const [availableRestaurants, setAvailableRestaurants] = useState<Array<{ id: string; name: string }>>([]);
@@ -301,7 +312,73 @@ export default function TablesModule() {
     setShowClose(false);
     setShowTableForm(false);
     setShowDeleteConfirm(false);
+    setShowManualOrder(false);
     setCopied(false);
+  }
+
+  function openManualOrder(table: Table) {
+    setSelectedTable(table);
+    setShowManualOrder(true);
+    setManualOrderSearch("");
+    setManualOrderError("");
+  }
+
+  function closeManualOrder() {
+    setShowManualOrder(false);
+    setManualOrderError("");
+    setManualOrderCart({});
+  }
+
+  function updateManualOrderCart(productId: string, product: any, delta: number) {
+    setManualOrderCart((prev) => {
+      const current = prev[productId]?.quantity || 0;
+      const next = Math.max(0, current + delta);
+      if (next === 0) {
+        const { [productId]: _, ...rest } = prev;
+        return rest;
+      }
+      return { ...prev, [productId]: { product, quantity: next } };
+    });
+  }
+
+  async function submitManualOrder() {
+    if (!selectedTable || !restaurantId) return;
+    const items = Object.values(manualOrderCart);
+    if (items.length === 0) {
+      setManualOrderError("Adicione pelo menos um item ao pedido.");
+      return;
+    }
+
+    setManualOrderLoading(true);
+    setManualOrderError("");
+
+    try {
+      const tableId = `${restaurantId}_${selectedTable.number}`;
+      const idempotencyKey = `manual-${restaurantId}-${selectedTable.number}-${Date.now()}`;
+      
+      const orderItems = items.map(({ product, quantity }) => ({
+        productId: product.id,
+        quantity,
+        notes: "",
+        extras: [],
+      }));
+
+      await orderApi("create", {
+        restaurantId,
+        tableId,
+        tableNumber: selectedTable.number,
+        items: orderItems,
+        idempotencyKey,
+        waiterId: "", // Will be assigned by the system if there's a waiter assigned to the table
+      });
+
+      setManualOrderCart({});
+      closeManualOrder();
+    } catch (error: any) {
+      setManualOrderError(error?.message || "Não foi possível enviar o pedido.");
+    } finally {
+      setManualOrderLoading(false);
+    }
   }
 
   function openCreateTable() {
@@ -343,7 +420,7 @@ export default function TablesModule() {
       const nextTable = { ...formTable, restaurantId };
       // Remover campos undefined antes de salvar no Firestore
       const tableToSave = Object.fromEntries(
-        Object.entries(nextTable).filter(([_, value]) => value !== undefined)
+        Object.entries(nextTable).filter(([, value]) => value !== undefined)
       );
       await setDoc(doc(db, "tables", `${restaurantId}_${formTable.number}`), tableToSave);
       if (editingTable && editingTable.number !== formTable.number) {
@@ -1013,9 +1090,7 @@ export default function TablesModule() {
                       className="table-action"
                       type="button"
                       onClick={() =>
-                        window.alert(
-                          `Adicionar pedido na Mesa ${selectedTable.number}`,
-                        )
+                        openManualOrder(selectedTable!)
                       }
                     >
                       <Receipt size={18} />
@@ -1576,6 +1651,173 @@ export default function TablesModule() {
             </div>
           </div>
         )}
+
+      {showManualOrder && selectedTable && (
+        <div
+          className="modal-overlay"
+          onClick={closeManualOrder}
+          role="presentation"
+        >
+          <div
+            className="modal manual-order-modal"
+            onClick={(event) =>
+              event.stopPropagation()
+            }
+            role="dialog"
+            aria-modal="true"
+            style={{ maxWidth: "520px", width: "95%", maxHeight: "90vh", overflow: "auto" }}
+          >
+            <button
+              className="modal-close"
+              type="button"
+              onClick={closeManualOrder}
+              aria-label="Fechar pedido manual"
+            >
+              <X size={20} />
+            </button>
+
+            <div className="modal-icon manual-order-icon">
+              <Receipt size={25} />
+            </div>
+
+            <div className="modal-title">
+              <span>
+                PEDIDO MANUAL
+              </span>
+
+              <h2>
+                Mesa {selectedTable.number}
+              </h2>
+
+              <p>
+                Adicione itens do cardápio para lançar o pedido na cozinha.
+              </p>
+            </div>
+
+            {manualOrderError && (
+              <div className="team-feedback" style={{ marginBottom: "16px" }}>
+                {manualOrderError}
+              </div>
+            )}
+
+            <div style={{ marginBottom: "12px" }}>
+              <label htmlFor="manual-order-search" style={{ display: "block", fontSize: "12px", color: "#71807b", marginBottom: "6px" }}>
+                Buscar no cardápio
+              </label>
+              <div className="input-wrapper" style={{ position: "relative" }}>
+                <Search size={17} style={{ position: "absolute", left: "12px", top: "50%", transform: "translateY(-50%)", color: "#71807b" }} />
+                <input
+                  id="manual-order-search"
+                  type="text"
+                  placeholder="Nome do produto..."
+                  value={manualOrderSearch}
+                  onChange={(e) => setManualOrderSearch(e.target.value)}
+                  style={{ paddingLeft: "40px", width: "100%", boxSizing: "border-box" }}
+                />
+              </div>
+            </div>
+
+            <div style={{ maxHeight: "400px", overflow: "auto" }}>
+              {(products.length === 0 && !menuLoading) ? (
+                <div className="empty-state" style={{ padding: "24px", textAlign: "center" }}>
+                  <strong>Cardápio vazio</strong>
+                  <p>Cadastre produtos no módulo Cardápio para lançar pedidos.</p>
+                </div>
+              ) : (
+                products
+                  .filter((p) => p.available !== false)
+                  .filter((p) => p.name.toLowerCase().includes(manualOrderSearch.toLowerCase()))
+                  .map((product) => {
+                    const cartItem = manualOrderCart[product.id];
+                    const qty = cartItem?.quantity || 0;
+                    return (
+                      <div
+                        key={product.id}
+                        className="manual-order-product"
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "12px",
+                          padding: "12px",
+                          borderBottom: "1px solid #1d221f",
+                          backgroundColor: qty > 0 ? "rgba(74, 222, 128, 0.08)" : "transparent",
+                        }}
+                      >
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <strong style={{ display: "block", fontSize: "14px" }}>{product.name}</strong>
+                          {product.description && <span style={{ fontSize: "12px", color: "#71807b", display: "block" }}>{product.description}</span>}
+                          <span style={{ fontSize: "13px", color: "#4ade80", display: "block", marginTop: "4px" }}>{formatCurrency(product.price)}</span>
+                          <span style={{ fontSize: "11px", color: "#71807b", display: "block" }}>{product.category}</span>
+                        </div>
+                        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                          <button
+                            type="button"
+                            className="icon-button"
+                            onClick={() => updateManualOrderCart(product.id, product, -1)}
+                            disabled={manualOrderLoading || qty === 0}
+                            style={{ width: "36px", height: "36px", opacity: qty === 0 ? 0.4 : 1 }}
+                          >
+                            <Minus size={16} />
+                          </button>
+                          <span style={{ fontSize: "16px", fontWeight: 600, minWidth: "30px", textAlign: "center", color: qty > 0 ? "#4ade80" : "inherit" }}>
+                            {qty}
+                          </span>
+                          <button
+                            type="button"
+                            className="icon-button"
+                            onClick={() => updateManualOrderCart(product.id, product, 1)}
+                            disabled={manualOrderLoading}
+                            style={{ width: "36px", height: "36px" }}
+                          >
+                            <Plus size={16} />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })
+              )}
+            </div>
+
+            {Object.keys(manualOrderCart).length > 0 && (
+              <div style={{ marginTop: "16px", padding: "12px", background: "#151916", borderRadius: "8px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "8px" }}>
+                  <span style={{ fontSize: "14px", fontWeight: 600 }}>Itens no pedido ({Object.values(manualOrderCart).reduce((sum, item) => sum + item.quantity, 0)})</span>
+                  <span style={{ fontSize: "14px", fontWeight: 600, color: "#4ade80" }}>
+                    {formatCurrency(Object.values(manualOrderCart).reduce((sum, item) => sum + item.product.price * item.quantity, 0))}
+                  </span>
+                </div>
+                <div style={{ fontSize: "12px", color: "#71807b", maxHeight: "120px", overflow: "auto" }}>
+                  {Object.entries(manualOrderCart).map(([productId, { product, quantity }]) => (
+                    <div key={productId} style={{ display: "flex", justifyContent: "space-between", padding: "2px 0" }}>
+                      <span>{quantity}x {product.name}</span>
+                      <span>{formatCurrency(product.price * quantity)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="modal-actions" style={{ marginTop: "16px", paddingTop: "16px", borderTop: "1px solid #1d221f" }}>
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={closeManualOrder}
+              >
+                Cancelar
+              </button>
+
+              <button
+                className="primary-button"
+                type="button"
+                onClick={submitManualOrder}
+                disabled={manualOrderLoading || Object.keys(manualOrderCart).length === 0}
+              >
+                {manualOrderLoading ? "Enviando..." : "Enviar para cozinha"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
